@@ -1,0 +1,355 @@
+import Phaser from 'phaser';
+import { TILE_SIZE, REALM_SIZE } from '@yggdrasil/shared';
+import { getBiomeForDistance } from '@yggdrasil/shared';
+import { angleBetween, distanceBetween, randomFloat, randomInt } from '../utils/MathUtils';
+
+/**
+ * EnemyManager: Spawns, updates, and manages all enemies in the realm.
+ *
+ * Chunk-based spawning: divides world into 16x16-tile chunks.
+ * Enemies only spawn/update near the player (within render distance).
+ * Each enemy has simple AI: wander, detect player, fire bullet patterns.
+ */
+
+const CHUNK_SIZE = 16; // tiles
+const SPAWN_RADIUS_CHUNKS = 4; // spawn enemies within 4 chunks of player
+const DESPAWN_DISTANCE = CHUNK_SIZE * TILE_SIZE * 6; // despawn if this far
+const MAX_ENEMIES = 60;
+const SPAWN_CHECK_INTERVAL = 2.0; // seconds between spawn checks
+
+interface EnemyData {
+  level: number;
+  maxHp: number;
+  hp: number;
+  damage: number;
+  speed: number;
+  aggroRange: number;
+  fireRate: number;
+  fireCooldown: number;
+  behavior: 'wander' | 'chase';
+  wanderAngle: number;
+  wanderTimer: number;
+  textureKey: string;
+  patternType: 'aimed' | 'radial' | 'shotgun';
+  projectileSpeed: number;
+  projectileTexture: string;
+}
+
+export class EnemyManager {
+  private scene: Phaser.Scene;
+  enemyGroup: Phaser.Physics.Arcade.Group;
+  private spawnTimer: number = 0;
+  private worldPixelSize: number;
+
+  // Health bar graphics
+  private healthBars: Map<Phaser.Physics.Arcade.Sprite, Phaser.GameObjects.Graphics> = new Map();
+
+  constructor(scene: Phaser.Scene) {
+    this.scene = scene;
+    this.worldPixelSize = REALM_SIZE * TILE_SIZE;
+
+    this.enemyGroup = scene.physics.add.group({
+      classType: Phaser.Physics.Arcade.Sprite,
+      runChildUpdate: false,
+    });
+  }
+
+  /** Spawn initial enemies around the player's starting position */
+  spawnInitialEnemies(playerX: number, playerY: number): void {
+    for (let i = 0; i < 15; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 200 + Math.random() * 400;
+      const x = playerX + Math.cos(angle) * dist;
+      const y = playerY + Math.sin(angle) * dist;
+      this.spawnEnemyAt(x, y);
+    }
+  }
+
+  update(dt: number, playerX: number, playerY: number): void {
+    // Periodic spawn check
+    this.spawnTimer += dt;
+    if (this.spawnTimer >= SPAWN_CHECK_INTERVAL) {
+      this.spawnTimer = 0;
+      this.spawnNearPlayer(playerX, playerY);
+    }
+
+    // Update each active enemy
+    this.enemyGroup.getChildren().forEach((child) => {
+      const enemy = child as Phaser.Physics.Arcade.Sprite;
+      if (!enemy.active) return;
+
+      // Despawn if too far from player
+      const dist = distanceBetween(enemy.x, enemy.y, playerX, playerY);
+      if (dist > DESPAWN_DISTANCE) {
+        this.destroyEnemy(enemy);
+        return;
+      }
+
+      this.updateEnemy(enemy, dt, playerX, playerY);
+    });
+  }
+
+  /** Update a single enemy's AI */
+  private updateEnemy(
+    enemy: Phaser.Physics.Arcade.Sprite,
+    dt: number,
+    playerX: number,
+    playerY: number,
+  ): void {
+    const data = enemy.getData('enemyData') as EnemyData;
+    if (!data) return;
+
+    const dist = distanceBetween(enemy.x, enemy.y, playerX, playerY);
+    const aggroRange = data.aggroRange * TILE_SIZE;
+
+    if (dist < aggroRange) {
+      // --- Chase & Attack ---
+      data.behavior = 'chase';
+
+      // Move toward player (but maintain distance for ranged enemies)
+      const minDist = 80; // don't walk into the player
+      if (dist > minDist) {
+        const angle = angleBetween(enemy.x, enemy.y, playerX, playerY);
+        enemy.setVelocity(
+          Math.cos(angle) * data.speed,
+          Math.sin(angle) * data.speed,
+        );
+      } else {
+        enemy.setVelocity(0, 0);
+      }
+
+      // Fire at player
+      data.fireCooldown -= dt;
+      if (data.fireCooldown <= 0) {
+        data.fireCooldown = 1.0 / data.fireRate;
+        this.fireEnemyPattern(enemy, data, playerX, playerY);
+      }
+    } else {
+      // --- Wander ---
+      data.behavior = 'wander';
+      data.wanderTimer -= dt;
+      if (data.wanderTimer <= 0) {
+        data.wanderAngle = Math.random() * Math.PI * 2;
+        data.wanderTimer = 2 + Math.random() * 3;
+      }
+      enemy.setVelocity(
+        Math.cos(data.wanderAngle) * data.speed * 0.3,
+        Math.sin(data.wanderAngle) * data.speed * 0.3,
+      );
+    }
+
+    // Update health bar
+    this.updateHealthBar(enemy, data);
+  }
+
+  /** Fire bullet pattern from enemy toward player */
+  private fireEnemyPattern(
+    enemy: Phaser.Physics.Arcade.Sprite,
+    data: EnemyData,
+    playerX: number,
+    playerY: number,
+  ): void {
+    const gameScene = this.scene as any;
+    const pm = gameScene.projectileManager;
+    if (!pm) return;
+
+    const baseAngle = angleBetween(enemy.x, enemy.y, playerX, playerY);
+
+    switch (data.patternType) {
+      case 'aimed':
+        // Single aimed shot
+        pm.fireEnemyProjectile(
+          enemy.x, enemy.y,
+          baseAngle,
+          data.projectileSpeed,
+          data.damage,
+          2000,
+          data.projectileTexture,
+        );
+        break;
+
+      case 'radial':
+        // 8 projectiles in a circle
+        for (let i = 0; i < 8; i++) {
+          const angle = (Math.PI * 2 / 8) * i;
+          pm.fireEnemyProjectile(
+            enemy.x, enemy.y,
+            angle,
+            data.projectileSpeed * 0.8,
+            data.damage,
+            2500,
+            data.projectileTexture,
+          );
+        }
+        break;
+
+      case 'shotgun':
+        // 3-5 projectiles in a cone
+        const count = 3 + Math.floor(Math.random() * 3);
+        const spread = 0.6; // radians
+        for (let i = 0; i < count; i++) {
+          const angle = baseAngle - spread / 2 + (spread / (count - 1)) * i;
+          pm.fireEnemyProjectile(
+            enemy.x, enemy.y,
+            angle,
+            data.projectileSpeed * (0.9 + Math.random() * 0.2),
+            data.damage,
+            1800,
+            data.projectileTexture,
+          );
+        }
+        break;
+    }
+  }
+
+  /** Spawn enemies near the player based on biome */
+  private spawnNearPlayer(playerX: number, playerY: number): void {
+    const activeCount = this.enemyGroup.countActive();
+    if (activeCount >= MAX_ENEMIES) return;
+
+    const toSpawn = Math.min(5, MAX_ENEMIES - activeCount);
+
+    for (let i = 0; i < toSpawn; i++) {
+      // Spawn at random position within spawn radius but not too close
+      const angle = Math.random() * Math.PI * 2;
+      const dist = 400 + Math.random() * 600; // 400-1000 px away
+      const x = playerX + Math.cos(angle) * dist;
+      const y = playerY + Math.sin(angle) * dist;
+
+      // Keep within world bounds
+      if (x < 32 || x > this.worldPixelSize - 32 || y < 32 || y > this.worldPixelSize - 32) {
+        continue;
+      }
+
+      this.spawnEnemyAt(x, y);
+    }
+  }
+
+  /** Spawn a single enemy at the given position */
+  private spawnEnemyAt(x: number, y: number): void {
+    // Determine difficulty based on distance from center
+    const centerX = this.worldPixelSize / 2;
+    const centerY = this.worldPixelSize / 2;
+    const maxDist = this.worldPixelSize / 2;
+    const dist = distanceBetween(x, y, centerX, centerY);
+    const normalizedDist = Math.min(1, dist / maxDist);
+
+    const biome = getBiomeForDistance(normalizedDist);
+    const difficulty = biome.difficultyLevel;
+
+    // Scale enemy stats based on difficulty
+    const level = Math.max(1, Math.min(20, Math.floor(difficulty * 2)));
+    const isSmall = difficulty <= 4;
+    const textureKey = isSmall ? 'enemy_small' : 'enemy_medium';
+    const spriteSize = isSmall ? 8 : 16;
+
+    const data: EnemyData = {
+      level,
+      maxHp: 30 + level * 20,
+      hp: 30 + level * 20,
+      damage: 5 + level * 3,
+      speed: 40 + level * 5,
+      aggroRange: 8 + level * 0.5,   // tiles
+      fireRate: 0.5 + level * 0.08,  // shots/sec
+      fireCooldown: Math.random() * 2,
+      behavior: 'wander',
+      wanderAngle: Math.random() * Math.PI * 2,
+      wanderTimer: Math.random() * 3,
+      textureKey,
+      patternType: this.pickPattern(difficulty),
+      projectileSpeed: 120 + level * 15,
+      projectileTexture: this.pickProjectileTexture(difficulty),
+    };
+
+    const enemy = this.scene.physics.add.sprite(x, y, textureKey);
+    enemy.setDepth(5);
+    enemy.body!.setSize(spriteSize - 2, spriteSize - 2);
+    enemy.setData('enemyData', data);
+    enemy.setData('level', level);
+
+    this.enemyGroup.add(enemy);
+  }
+
+  private pickPattern(difficulty: number): 'aimed' | 'radial' | 'shotgun' {
+    if (difficulty <= 3) return 'aimed';
+    if (difficulty <= 6) return Math.random() < 0.5 ? 'aimed' : 'shotgun';
+    const r = Math.random();
+    if (r < 0.33) return 'aimed';
+    if (r < 0.66) return 'shotgun';
+    return 'radial';
+  }
+
+  private pickProjectileTexture(difficulty: number): string {
+    if (difficulty <= 3) return 'projectile_enemy';
+    if (difficulty <= 6) return 'projectile_enemy_purple';
+    return 'projectile_enemy_green';
+  }
+
+  /** Apply damage to an enemy. Returns true if killed. */
+  damageEnemy(enemy: Phaser.Physics.Arcade.Sprite, damage: number): boolean {
+    const data = enemy.getData('enemyData') as EnemyData;
+    if (!data) return false;
+
+    data.hp -= damage;
+
+    // Flash white
+    enemy.setTint(0xffffff);
+    this.scene.time.delayedCall(80, () => {
+      if (enemy.active) enemy.clearTint();
+    });
+
+    if (data.hp <= 0) {
+      this.destroyEnemy(enemy);
+      return true;
+    }
+
+    return false;
+  }
+
+  private destroyEnemy(enemy: Phaser.Physics.Arcade.Sprite): void {
+    // Remove health bar
+    const bar = this.healthBars.get(enemy);
+    if (bar) {
+      bar.destroy();
+      this.healthBars.delete(enemy);
+    }
+
+    enemy.destroy();
+  }
+
+  private updateHealthBar(enemy: Phaser.Physics.Arcade.Sprite, data: EnemyData): void {
+    if (data.hp >= data.maxHp) {
+      // Full health — don't show bar
+      const existing = this.healthBars.get(enemy);
+      if (existing) {
+        existing.destroy();
+        this.healthBars.delete(enemy);
+      }
+      return;
+    }
+
+    let bar = this.healthBars.get(enemy);
+    if (!bar) {
+      bar = this.scene.add.graphics();
+      bar.setDepth(15);
+      this.healthBars.set(enemy, bar);
+    }
+
+    bar.clear();
+
+    const barWidth = 20;
+    const barHeight = 3;
+    const x = enemy.x - barWidth / 2;
+    const y = enemy.y - (enemy.height / 2) - 6;
+    const hpRatio = Math.max(0, data.hp / data.maxHp);
+
+    // Background
+    bar.fillStyle(0x222222, 0.8);
+    bar.fillRect(x, y, barWidth, barHeight);
+
+    // HP fill
+    const color = hpRatio > 0.5 ? 0x44cc44 : hpRatio > 0.25 ? 0xcccc44 : 0xcc4444;
+    bar.fillStyle(color, 1);
+    bar.fillRect(x, y, barWidth * hpRatio, barHeight);
+  }
+}

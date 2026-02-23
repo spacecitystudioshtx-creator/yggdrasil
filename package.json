@@ -1,0 +1,22 @@
+{
+  "name": "yggdrasil",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Norse mythology 2D bullet-hell RPG with AI-generated content",
+  "workspaces": [
+    "shared",
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=client",
+    "dev:server": "npm run dev --workspace=server",
+    "dev:all": "concurrently \"npm run dev:server\" \"npm run dev\"",
+    "build": "npm run build --workspace=shared && npm run build --workspace=client",
+    "build:shared": "npm run build --workspace=shared"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0"
+  }
+}
