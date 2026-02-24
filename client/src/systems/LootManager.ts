@@ -131,6 +131,35 @@ export class LootManager {
     });
   }
 
+  /** Spawn a loot bag with specific items (used for boss drops) */
+  spawnLootBagWithItems(x: number, y: number, items: { itemId: string; quantity: number }[]): void {
+    if (items.length === 0) return;
+
+    const tier = this.getBagTier(items);
+    const textureKey = this.getBagTexture(tier);
+
+    const sprite = this.scene.physics.add.sprite(x, y, textureKey);
+    sprite.setDepth(3);
+    sprite.body!.setSize(8, 8);
+    this.bagGroup.add(sprite);
+
+    this.scene.tweens.add({
+      targets: sprite,
+      y: y - 3,
+      duration: 1000,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
+    this.bags.push({
+      sprite,
+      items,
+      spawnTime: this.scene.time.now,
+      tier,
+    });
+  }
+
   update(dt: number, playerX: number, playerY: number): void {
     const now = this.scene.time.now;
 

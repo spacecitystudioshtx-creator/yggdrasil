@@ -115,6 +115,36 @@ export const ITEM_DATABASE: Record<string, GameItem> = {
     sellValue: 5, spriteColor: 0x888888, spriteAccent: 0x664422, stackable: false, maxStack: 1,
   },
 
+  // ---- SPEARS (Valkyrie) ----
+  'spear_t0': {
+    id: 'spear_t0', name: 'Ash Spear', description: 'A simple ash-wood spear. Good reach.',
+    type: ItemType.Weapon, slot: ItemSlot.Weapon, rarity: ItemRarity.Common, tier: 0,
+    weaponType: WeaponType.Spear, damage: 18, rateOfFire: 1.6, range: 6.0, numProjectiles: 1, spreadAngle: 0,
+    sellValue: 5, spriteColor: 0xaa8855, spriteAccent: 0xcccccc, stackable: false, maxStack: 1,
+  },
+  'spear_t5': {
+    id: 'spear_t5', name: 'Gungnir\'s Echo', description: 'Forged in the likeness of Odin\'s spear. Never misses its mark.',
+    type: ItemType.Weapon, slot: ItemSlot.Weapon, rarity: ItemRarity.Uncommon, tier: 5,
+    weaponType: WeaponType.Spear, damage: 60, rateOfFire: 1.8, range: 7.0, numProjectiles: 3, spreadAngle: 15,
+    statBonuses: { [StatType.Attack]: 3, [StatType.Speed]: 2 },
+    sellValue: 80, spriteColor: 0xddcc66, spriteAccent: 0xffee88, stackable: false, maxStack: 1,
+  },
+
+  // ---- WANDS (Skald) ----
+  'wand_t0': {
+    id: 'wand_t0', name: 'Birch Wand', description: 'A slender wand humming with faint seidr magic.',
+    type: ItemType.Weapon, slot: ItemSlot.Weapon, rarity: ItemRarity.Common, tier: 0,
+    weaponType: WeaponType.Wand, damage: 16, rateOfFire: 2.0, range: 7.5, numProjectiles: 1, spreadAngle: 0,
+    sellValue: 5, spriteColor: 0x44ccaa, spriteAccent: 0x88ffdd, stackable: false, maxStack: 1,
+  },
+  'wand_t5': {
+    id: 'wand_t5', name: 'Galdr Wand', description: 'Inscribed with incantations. Bolts seek their target.',
+    type: ItemType.Weapon, slot: ItemSlot.Weapon, rarity: ItemRarity.Uncommon, tier: 5,
+    weaponType: WeaponType.Wand, damage: 50, rateOfFire: 2.5, range: 8.5, numProjectiles: 2, spreadAngle: 8,
+    statBonuses: { [StatType.Wisdom]: 4, [StatType.Attack]: 2 },
+    sellValue: 80, spriteColor: 0x66ddbb, spriteAccent: 0xaaffee, stackable: false, maxStack: 1,
+  },
+
   // ---- ARMOR ----
   'armor_heavy_t0': {
     id: 'armor_heavy_t0', name: 'Leather Hauberk', description: 'Basic leather armor. Smells of cattle.',
@@ -127,6 +157,18 @@ export const ITEM_DATABASE: Record<string, GameItem> = {
     type: ItemType.Armor, slot: ItemSlot.Armor, rarity: ItemRarity.Uncommon, tier: 5, armorType: ArmorType.Heavy,
     statBonuses: { [StatType.Defense]: 12, [StatType.Speed]: -2 },
     sellValue: 80, spriteColor: 0xaaaaaa, spriteAccent: 0x888888, stackable: false, maxStack: 1,
+  },
+  'armor_medium_t0': {
+    id: 'armor_medium_t0', name: 'Ringmail Tunic', description: 'A vest of interlocking rings. Good balance of protection and mobility.',
+    type: ItemType.Armor, slot: ItemSlot.Armor, rarity: ItemRarity.Common, tier: 0, armorType: ArmorType.Medium,
+    statBonuses: { [StatType.Defense]: 2, [StatType.Speed]: 1 },
+    sellValue: 5, spriteColor: 0xbb9944, spriteAccent: 0x997733, stackable: false, maxStack: 1,
+  },
+  'armor_medium_t5': {
+    id: 'armor_medium_t5', name: 'Valkyrie\'s Breastplate', description: 'Blessed by the Valkyries. Light as feathers, strong as iron.',
+    type: ItemType.Armor, slot: ItemSlot.Armor, rarity: ItemRarity.Uncommon, tier: 5, armorType: ArmorType.Medium,
+    statBonuses: { [StatType.Defense]: 8, [StatType.Speed]: 2, [StatType.Vitality]: 3 },
+    sellValue: 80, spriteColor: 0xddbb55, spriteAccent: 0xffdd77, stackable: false, maxStack: 1,
   },
   'armor_robe_t0': {
     id: 'armor_robe_t0', name: 'Woolen Robe', description: 'Warm but offers little protection.',

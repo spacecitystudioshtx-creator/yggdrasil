@@ -2,6 +2,11 @@ import Phaser from 'phaser';
 import { BootScene } from '../scenes/BootScene';
 import { PreloadScene } from '../scenes/PreloadScene';
 import { GameScene } from '../scenes/GameScene';
+import { DungeonScene } from '../scenes/DungeonScene';
+import { NexusScene } from '../scenes/NexusScene';
+import { CharacterSelectScene } from '../scenes/CharacterSelectScene';
+import { DeathScene } from '../scenes/DeathScene';
+import { LoreScene } from '../scenes/LoreScene';
 import { UIScene } from '../scenes/UIScene';
 
 export const GAME_WIDTH = 800;
@@ -26,5 +31,5 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BootScene, PreloadScene, GameScene, UIScene],
+  scene: [BootScene, PreloadScene, LoreScene, CharacterSelectScene, GameScene, DungeonScene, NexusScene, DeathScene, UIScene],
 };

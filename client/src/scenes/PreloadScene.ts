@@ -58,8 +58,7 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   private startGame(): void {
-    // Launch GameScene and UIScene in parallel
-    this.scene.start('GameScene');
-    this.scene.launch('UIScene');
+    // Show lore intro → character select
+    this.scene.start('LoreScene');
   }
 }

@@ -9,6 +9,8 @@ import {
   VIT_HP_REGEN_BONUS,
   BASE_MP_REGEN,
   WIS_MP_REGEN_BONUS,
+  TILE_SIZE,
+  REALM_SIZE,
 } from '@yggdrasil/shared';
 import { angleBetween } from '../utils/MathUtils';
 
@@ -47,22 +49,57 @@ export class PlayerController {
   // --- Combat ---
   private shootCooldown: number = 0;
   private readonly baseFireRate: number = 2.0; // shots per second
+  fireRateMultiplier: number = 1.0; // class-specific multiplier
 
   // --- Regen ---
   private regenTimer: number = 0;
 
+  // --- Class-based level gains (can be overridden by class system) ---
+  levelGains = {
+    maxHp: 20, maxMp: 5,
+    attack: 1, defense: 1,
+    speed: 1, dexterity: 1,
+    vitality: 1, wisdom: 1,
+  };
+
   // --- State ---
   isDead: boolean = false;
+  isInvincible: boolean = false;
+  private invincibilityTimer: number = 0;
+
+  // Spawn position (safe zone)
+  private readonly spawnX: number;
+  private readonly spawnY: number;
 
   constructor(scene: Phaser.Scene, sprite: Phaser.Physics.Arcade.Sprite, input: InputManager) {
     this.scene = scene;
     this.sprite = sprite;
     this.input = input;
     this.xpToNext = xpForLevel(2);
+
+    // Remember spawn position for respawning
+    this.spawnX = sprite.x;
+    this.spawnY = sprite.y;
+
+    // Grant 3 seconds of invincibility on initial spawn
+    this.grantInvincibility(3.0);
   }
 
   update(dt: number, mouseWorldX: number, mouseWorldY: number): void {
     if (this.isDead) return;
+
+    // Tick down invincibility
+    if (this.isInvincible) {
+      this.invincibilityTimer -= dt;
+      if (this.invincibilityTimer <= 0) {
+        this.isInvincible = false;
+        this.sprite.setAlpha(1);
+      } else {
+        // Flashing effect while invincible
+        const flash = Math.sin(this.invincibilityTimer * 12) > 0;
+        this.sprite.setAlpha(flash ? 1 : 0.4);
+      }
+    }
 
     this.handleMovement(dt);
     this.handleRegen(dt);
@@ -93,6 +130,12 @@ export class PlayerController {
     }
   }
 
+  // --- Invincibility ---
+  grantInvincibility(duration: number): void {
+    this.isInvincible = true;
+    this.invincibilityTimer = duration;
+  }
+
   // --- Combat ---
 
   /** Can the player fire right now? */
@@ -106,8 +149,8 @@ export class PlayerController {
   onShoot(): boolean {
     if (!this.canShoot()) return false;
 
-    // Fire rate scales with dexterity
-    const fireRate = this.baseFireRate + this.dexterity * 0.02;
+    // Fire rate scales with dexterity, then apply class multiplier
+    const fireRate = (this.baseFireRate + this.dexterity * 0.02) * this.fireRateMultiplier;
     this.shootCooldown = 1.0 / fireRate;
 
     return true;
@@ -125,6 +168,7 @@ export class PlayerController {
   /** Take damage from an enemy projectile */
   takeDamage(rawDamage: number): void {
     if (this.isDead) return;
+    if (this.isInvincible) return; // ignore damage while invincible
 
     const finalDamage = calculateDamage(rawDamage, this.defense);
     this.hp -= finalDamage;
@@ -155,15 +199,15 @@ export class PlayerController {
   }
 
   private onLevelUp(): void {
-    // Stat gains per level (base, before stat potions)
-    this.maxHp += 20;
-    this.maxMp += 5;
-    this.attack += 1;
-    this.defense += 1;
-    this.speed += 1;
-    this.dexterity += 1;
-    this.vitality += 1;
-    this.wisdom += 1;
+    // Stat gains per level (uses class-specific gains if set)
+    this.maxHp += this.levelGains.maxHp;
+    this.maxMp += this.levelGains.maxMp;
+    this.attack += this.levelGains.attack;
+    this.defense += this.levelGains.defense;
+    this.speed += this.levelGains.speed;
+    this.dexterity += this.levelGains.dexterity;
+    this.vitality += this.levelGains.vitality;
+    this.wisdom += this.levelGains.wisdom;
 
     // Full heal on level up
     this.hp = this.maxHp;
@@ -193,10 +237,16 @@ export class PlayerController {
     });
   }
 
+  // If true, death is permanent (overworld) — no auto-respawn
+  permadeath: boolean = false;
+
   private die(): void {
     this.isDead = true;
     this.sprite.setVelocity(0, 0);
-    this.sprite.setAlpha(0.5);
+    this.sprite.setAlpha(0.3);
+
+    // Disable physics body so no more projectile collisions while dead
+    this.sprite.body!.enable = false;
 
     // Emit death event for UI to show death overlay
     this.scene.events.emit('playerDeath', {
@@ -204,12 +254,35 @@ export class PlayerController {
       causeOfDeath: 'Enemy attack',
     });
 
-    // Respawn after 3 seconds
+    // In permadeath mode (overworld), the scene handles transition to DeathScene
+    // In dungeon mode, respawn at dungeon start
+    if (this.permadeath) {
+      // GameScene will listen to 'playerDeath' and transition to DeathScene
+      return;
+    }
+
+    // Non-permadeath: Respawn after 3 seconds (used in dungeons)
     this.scene.time.delayedCall(3000, () => {
       this.isDead = false;
       this.hp = this.maxHp;
       this.mp = this.maxMp;
+
+      // Teleport to spawn position
+      this.sprite.setPosition(this.spawnX, this.spawnY);
       this.sprite.setAlpha(1);
+
+      // Re-enable physics body
+      this.sprite.body!.enable = true;
+
+      // Snap camera instantly to new position (no slow lerp across the map)
+      const gameScene = this.scene as any;
+      if (gameScene.cameraController?.snapToTarget) {
+        gameScene.cameraController.snapToTarget();
+      }
+
+      // Grant 4 seconds of invincibility after respawn
+      this.grantInvincibility(4.0);
+
       this.scene.events.emit('playerRespawn');
     });
   }

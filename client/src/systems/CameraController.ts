@@ -35,6 +35,11 @@ export class CameraController {
     // Phaser's startFollow handles camera updates automatically
   }
 
+  /** Instantly snap camera to the target (no lerp). Use after teleporting the player. */
+  snapToTarget(): void {
+    this.camera.centerOn(this.target.x, this.target.y);
+  }
+
   /** Screen shake effect (for hits, explosions) */
   shake(intensity: number = 0.005, duration: number = 100): void {
     this.camera.shake(duration, intensity);

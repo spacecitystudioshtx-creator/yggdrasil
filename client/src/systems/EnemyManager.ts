@@ -56,11 +56,17 @@ export class EnemyManager {
 
   /** Spawn initial enemies around the player's starting position */
   spawnInitialEnemies(playerX: number, playerY: number): void {
-    for (let i = 0; i < 15; i++) {
+    // Spawn fewer enemies, and further away so player has breathing room
+    for (let i = 0; i < 8; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const dist = 200 + Math.random() * 400;
+      const dist = 500 + Math.random() * 600; // 500-1100px away (safe buffer)
       const x = playerX + Math.cos(angle) * dist;
       const y = playerY + Math.sin(angle) * dist;
+
+      // Keep within world bounds
+      if (x < 32 || x > this.worldPixelSize - 32 || y < 32 || y > this.worldPixelSize - 32) {
+        continue;
+      }
       this.spawnEnemyAt(x, y);
     }
   }
@@ -247,11 +253,11 @@ export class EnemyManager {
       level,
       maxHp: 30 + level * 20,
       hp: 30 + level * 20,
-      damage: 5 + level * 3,
-      speed: 40 + level * 5,
-      aggroRange: 8 + level * 0.5,   // tiles
-      fireRate: 0.5 + level * 0.08,  // shots/sec
-      fireCooldown: Math.random() * 2,
+      damage: 3 + level * 2,
+      speed: 35 + level * 4,
+      aggroRange: 6 + level * 0.4,   // tiles
+      fireRate: 0.3 + level * 0.06,  // shots/sec (slower early game)
+      fireCooldown: 1 + Math.random() * 2, // initial delay before first shot
       behavior: 'wander',
       wanderAngle: Math.random() * Math.PI * 2,
       wanderTimer: Math.random() * 3,
@@ -286,6 +292,20 @@ export class EnemyManager {
   }
 
   /** Apply damage to an enemy. Returns true if killed. */
+  /** Get all active enemies within range of a point */
+  getEnemiesInRange(x: number, y: number, range: number): Phaser.Physics.Arcade.Sprite[] {
+    const result: Phaser.Physics.Arcade.Sprite[] = [];
+    this.enemyGroup.getChildren().forEach((child) => {
+      const enemy = child as Phaser.Physics.Arcade.Sprite;
+      if (!enemy.active) return;
+      const dist = distanceBetween(x, y, enemy.x, enemy.y);
+      if (dist <= range) {
+        result.push(enemy);
+      }
+    });
+    return result;
+  }
+
   damageEnemy(enemy: Phaser.Physics.Arcade.Sprite, damage: number): boolean {
     const data = enemy.getData('enemyData') as EnemyData;
     if (!data) return false;
