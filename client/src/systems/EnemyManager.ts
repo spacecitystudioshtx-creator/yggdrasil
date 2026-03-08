@@ -243,27 +243,90 @@ export class EnemyManager {
     const biome = getBiomeForDistance(normalizedDist);
     const difficulty = biome.difficultyLevel;
 
-    // Scale enemy stats based on difficulty
-    const level = Math.max(1, Math.min(20, Math.floor(difficulty * 2)));
-    const isSmall = difficulty <= 4;
+    // ----------------------------------------------------------------
+    // Outer Frozen Shores (dist > 0.75, difficulty 2):
+    //   Easy, solo-able fights. Slow single aimed shots, low HP/damage.
+    //   Level 1-2.
+    //
+    // Birch Forest (dist 0.4-0.75, difficulty 5):
+    //   Moderate challenge. Faster shots, sometimes shotgun, more HP.
+    //   Dodgeable but requires skill. Level 4-6.
+    //
+    // Volcanic Wastes (dist 0.15-0.4, difficulty 8):
+    //   Hard. Radial + shotgun patterns, high damage. Level 8-10.
+    //
+    // Niflheim Depths (dist < 0.15, difficulty 10):
+    //   Brutal. All patterns, very fast, very high HP. Level 12+.
+    // ----------------------------------------------------------------
+    let level: number;
+    let isSmall: boolean;
+    let hp: number;
+    let damage: number;
+    let speed: number;
+    let aggroRange: number;
+    let fireRate: number;
+    let projectileSpeed: number;
+
+    if (difficulty <= 2) {
+      // Outer Frozen Shores — beginner friendly, 1v1 easy
+      level = randomInt(1, 2);
+      isSmall = true;
+      hp = 20 + level * 10;         // 30-40 HP — dies in 2-3 hits
+      damage = 2 + level;            // 3-4 damage per hit
+      speed = 28 + level * 3;        // slow
+      aggroRange = 5;                // only aggros when fairly close
+      fireRate = 0.22;               // ~1 shot every 4.5s — easy to dodge
+      projectileSpeed = 90;          // slow projectiles
+    } else if (difficulty <= 5) {
+      // Birch Forest — moderate, requires dodging
+      level = randomInt(3, 6);
+      isSmall = Math.random() < 0.5;
+      hp = 50 + level * 18;
+      damage = 5 + level * 2;        // more meaningful damage
+      speed = 40 + level * 3;
+      aggroRange = 7;
+      fireRate = 0.38;               // ~1 shot every 2.6s — readable
+      projectileSpeed = 130 + level * 8;
+    } else if (difficulty <= 8) {
+      // Volcanic Wastes — hard
+      level = randomInt(7, 10);
+      isSmall = false;
+      hp = 120 + level * 25;
+      damage = 10 + level * 3;
+      speed = 55 + level * 4;
+      aggroRange = 9;
+      fireRate = 0.55;
+      projectileSpeed = 160 + level * 10;
+    } else {
+      // Niflheim Depths — brutal
+      level = randomInt(12, 18);
+      isSmall = false;
+      hp = 200 + level * 30;
+      damage = 18 + level * 4;
+      speed = 70 + level * 5;
+      aggroRange = 11;
+      fireRate = 0.75;
+      projectileSpeed = 200 + level * 12;
+    }
+
     const textureKey = isSmall ? 'enemy_small' : 'enemy_medium';
     const spriteSize = isSmall ? 8 : 16;
 
     const data: EnemyData = {
       level,
-      maxHp: 30 + level * 20,
-      hp: 30 + level * 20,
-      damage: 3 + level * 2,
-      speed: 35 + level * 4,
-      aggroRange: 6 + level * 0.4,   // tiles
-      fireRate: 0.3 + level * 0.06,  // shots/sec (slower early game)
-      fireCooldown: 1 + Math.random() * 2, // initial delay before first shot
+      maxHp: hp,
+      hp,
+      damage,
+      speed,
+      aggroRange,
+      fireRate,
+      fireCooldown: 1 + Math.random() * 2,
       behavior: 'wander',
       wanderAngle: Math.random() * Math.PI * 2,
       wanderTimer: Math.random() * 3,
       textureKey,
       patternType: this.pickPattern(difficulty),
-      projectileSpeed: 120 + level * 15,
+      projectileSpeed,
       projectileTexture: this.pickProjectileTexture(difficulty),
     };
 
@@ -277,8 +340,9 @@ export class EnemyManager {
   }
 
   private pickPattern(difficulty: number): 'aimed' | 'radial' | 'shotgun' {
-    if (difficulty <= 3) return 'aimed';
-    if (difficulty <= 6) return Math.random() < 0.5 ? 'aimed' : 'shotgun';
+    // Outer zone — only simple aimed shots so new players can read the game
+    if (difficulty <= 2) return 'aimed';
+    if (difficulty <= 5) return Math.random() < 0.6 ? 'aimed' : 'shotgun';
     const r = Math.random();
     if (r < 0.33) return 'aimed';
     if (r < 0.66) return 'shotgun';
@@ -286,8 +350,8 @@ export class EnemyManager {
   }
 
   private pickProjectileTexture(difficulty: number): string {
-    if (difficulty <= 3) return 'projectile_enemy';
-    if (difficulty <= 6) return 'projectile_enemy_purple';
+    if (difficulty <= 2) return 'projectile_enemy';
+    if (difficulty <= 5) return 'projectile_enemy_purple';
     return 'projectile_enemy_green';
   }
 

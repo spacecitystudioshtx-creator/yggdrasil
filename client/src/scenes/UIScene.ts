@@ -1,5 +1,4 @@
 import Phaser from 'phaser';
-import { getItem } from '../data/ItemDatabase';
 
 /**
  * UIScene: Stardew Valley-inspired warm HUD overlay.
@@ -35,7 +34,7 @@ export class UIScene extends Phaser.Scene {
   private levelText!: Phaser.GameObjects.Text;
   private hpText!: Phaser.GameObjects.Text;
   private mpText!: Phaser.GameObjects.Text;
-  private goldText!: Phaser.GameObjects.Text;
+  // goldText removed — gold system removed
 
   private deathOverlay!: Phaser.GameObjects.Graphics;
   private deathText!: Phaser.GameObjects.Text;
@@ -43,8 +42,6 @@ export class UIScene extends Phaser.Scene {
   private questTexts: Phaser.GameObjects.Text[] = [];
   private questGfx!: Phaser.GameObjects.Graphics;
 
-  private invPanel!: Phaser.GameObjects.Container;
-  private invOpen = false;
   private questPanel!: Phaser.GameObjects.Container;
   private questOpen = false;
 
@@ -96,31 +93,10 @@ export class UIScene extends Phaser.Scene {
       stroke: '#000', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(101);
 
-    this.goldText = this.add.text(10, 80, 'Gold: 0', {
-      fontFamily: 'monospace', fontSize: '11px', color: '#ddaa44',
-      stroke: '#000', strokeThickness: 2,
-    }).setDepth(100);
+    // Gold display removed — gold system gone
+    // Equipment hotbar removed — no inventory system
 
-    // --- Bottom hotbar with equipment slots + ability display ---
-    const hotbar = this.add.graphics().setDepth(99);
-    const cx = this.cameras.main.width / 2;
-    const hy = this.cameras.main.height - 52;
-    const sw = 32, gap = 6;
-    const tw = sw * 4 + gap * 3 + 20;
-    this.drawPanel(hotbar, cx - tw / 2, hy - 6, tw, sw + 14);
-    const labels = ['WPN', 'ABL', 'ARM', 'RNG'];
-    for (let i = 0; i < 4; i++) {
-      const sx = cx - tw / 2 + 6 + i * (sw + gap) + 4;
-      hotbar.fillStyle(C.slotBg);
-      hotbar.fillRect(sx, hy, sw, sw);
-      hotbar.lineStyle(1, C.slotBorder);
-      hotbar.strokeRect(sx, hy, sw, sw);
-      this.add.text(sx + sw / 2, hy + sw / 2, labels[i], {
-        fontFamily: 'monospace', fontSize: '8px', color: '#8b6b3d',
-      }).setOrigin(0.5).setDepth(101);
-    }
-
-    // Ability cooldown display (below hotbar)
+    // Ability cooldown display (bottom-center)
     this.abilityGfx = this.add.graphics().setDepth(100);
 
     // --- Quest tracker (top-right) --- BIGGER TEXT
@@ -156,32 +132,20 @@ export class UIScene extends Phaser.Scene {
     ).setOrigin(0.5).setDepth(201).setVisible(false);
 
     // --- Toggle panels ---
-    this.invPanel = this.add.container(0, 0).setDepth(150).setVisible(false);
     this.questPanel = this.add.container(0, 0).setDepth(150).setVisible(false);
     this.mapPanel = this.add.container(0, 0).setDepth(150).setVisible(false);
 
-    // --- Controls hint (BIGGER, MORE READABLE) ---
-    const hint = this.add.text(
+    // --- Controls hint (always visible at bottom) ---
+    this.add.text(
       this.cameras.main.width / 2, this.cameras.main.height - 8,
-      'WASD: Move | Click: Shoot | Space: Ability | I: Inventory | J: Quests | M: Map | R: Asgard',
+      'WASD: Move  |  Click: Shoot  |  Space: Ability  |  M: Map  |  R: Nexus',
       { fontFamily: 'monospace', fontSize: '9px', color: '#998877', stroke: '#000', strokeThickness: 1 },
     ).setOrigin(0.5).setDepth(100);
-    this.time.delayedCall(10000, () => this.tweens.add({ targets: hint, alpha: 0, duration: 2000 }));
 
     // --- Keyboard ---
-    this.input.keyboard!.on('keydown-I', () => {
-      this.invOpen = !this.invOpen;
-      if (this.invOpen) { this.questOpen = false; this.mapOpen = false; this.questPanel.setVisible(false); this.mapPanel.setVisible(false); this.rebuildInventory(); }
-      this.invPanel.setVisible(this.invOpen);
-    });
-    this.input.keyboard!.on('keydown-J', () => {
-      this.questOpen = !this.questOpen;
-      if (this.questOpen) { this.invOpen = false; this.mapOpen = false; this.invPanel.setVisible(false); this.mapPanel.setVisible(false); this.rebuildQuestLog(); }
-      this.questPanel.setVisible(this.questOpen);
-    });
     this.input.keyboard!.on('keydown-M', () => {
       this.mapOpen = !this.mapOpen;
-      if (this.mapOpen) { this.invOpen = false; this.questOpen = false; this.invPanel.setVisible(false); this.questPanel.setVisible(false); this.rebuildWorldMap(); }
+      if (this.mapOpen) { this.rebuildWorldMap(); }
       this.mapPanel.setVisible(this.mapOpen);
     });
 
@@ -238,7 +202,7 @@ export class UIScene extends Phaser.Scene {
     this.xpGfx.lineStyle(1, 0x000000, 0.3); this.xpGfx.strokeRect(14, 50, this.barW, 8);
     this.levelText.setText(`Lv. ${d.level}`);
 
-    if (d.gold !== undefined) this.goldText.setText(`Gold: ${d.gold}`);
+    // gold display removed
 
     // Update ability cooldown display
     if (d.abilities) {
@@ -246,81 +210,63 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
-  // ---- Ability cooldown display ----
+  // ---- Ability cooldown display (single ability slot) ----
   private updateAbilityDisplay(abilities: { name: string; cooldownRemaining: number; cooldownTotal: number; mpCost: number; unlocked: boolean; color: string }[]): void {
     this.abilityGfx.clear();
     this.abilityTexts.forEach(t => t.destroy());
     this.abilityTexts = [];
 
+    if (!abilities.length) return;
+    const ab = abilities[0]; // single ability only
     const cx = this.cameras.main.width / 2;
-    const abY = this.cameras.main.height - 80;
-    const abW = 48, abGap = 6;
-    const totalW = abW * 3 + abGap * 2;
-    const startX = cx - totalW / 2;
+    const abW = 110, abH = 28;
+    const abY = this.cameras.main.height - 50;
+    const ax = cx - abW / 2;
+    const tint = parseInt(ab.color.replace('#', ''), 16);
+    const isReady = ab.cooldownRemaining <= 0;
 
-    for (let i = 0; i < abilities.length; i++) {
-      const ab = abilities[i];
-      const ax = startX + i * (abW + abGap);
+    // Background
+    this.abilityGfx.fillStyle(0x111111, 0.88);
+    this.abilityGfx.fillRect(ax, abY, abW, abH);
 
-      // Background
-      this.abilityGfx.fillStyle(0x222222, 0.6);
-      this.abilityGfx.fillRect(ax, abY, abW, 18);
-
-      if (ab.unlocked) {
-        // Cooldown fill
-        if (ab.cooldownRemaining > 0) {
-          const cdRatio = ab.cooldownRemaining / ab.cooldownTotal;
-          this.abilityGfx.fillStyle(0x444444, 0.5);
-          this.abilityGfx.fillRect(ax, abY, abW * cdRatio, 18);
-        } else {
-          // Ready — show colored
-          const tint = parseInt(ab.color.replace('#', ''), 16);
-          this.abilityGfx.fillStyle(tint, 0.3);
-          this.abilityGfx.fillRect(ax, abY, abW, 18);
-        }
-
-        this.abilityGfx.lineStyle(1, 0x888888, 0.5);
-        this.abilityGfx.strokeRect(ax, abY, abW, 18);
-
-        // Ability name (short)
-        const shortName = ab.name.length > 6 ? ab.name.substring(0, 6) : ab.name;
-        const isReady = ab.cooldownRemaining <= 0;
-        const textColor = isReady ? ab.color : '#666666';
-
-        const nameText = this.add.text(ax + abW / 2, abY + 5, shortName, {
-          fontFamily: 'monospace', fontSize: '7px', color: textColor,
-          stroke: '#000', strokeThickness: 1,
-        }).setOrigin(0.5).setDepth(101);
-        this.abilityTexts.push(nameText);
-
-        // Cooldown number
-        if (ab.cooldownRemaining > 0) {
-          const cdText = this.add.text(ax + abW / 2, abY + 13, `${Math.ceil(ab.cooldownRemaining)}s`, {
-            fontFamily: 'monospace', fontSize: '7px', color: '#cc8844',
-          }).setOrigin(0.5).setDepth(101);
-          this.abilityTexts.push(cdText);
-        } else {
-          const mpText = this.add.text(ax + abW / 2, abY + 13, `${ab.mpCost}mp`, {
-            fontFamily: 'monospace', fontSize: '6px', color: '#5577aa',
-          }).setOrigin(0.5).setDepth(101);
-          this.abilityTexts.push(mpText);
-        }
-      } else {
-        // Locked
-        this.abilityGfx.lineStyle(1, 0x444444, 0.3);
-        this.abilityGfx.strokeRect(ax, abY, abW, 18);
-        const lockText = this.add.text(ax + abW / 2, abY + 9, '🔒', {
-          fontFamily: 'monospace', fontSize: '8px', color: '#444444',
-        }).setOrigin(0.5).setDepth(101);
-        this.abilityTexts.push(lockText);
-      }
+    if (ab.cooldownRemaining > 0) {
+      // Cooldown: dark bg + grey sweep showing time remaining
+      const cdRatio = ab.cooldownRemaining / ab.cooldownTotal;
+      this.abilityGfx.fillStyle(0x222222, 0.9);
+      this.abilityGfx.fillRect(ax, abY, abW, abH);
+      this.abilityGfx.fillStyle(0x444444, 0.6);
+      this.abilityGfx.fillRect(ax, abY, abW * cdRatio, abH);
+      this.abilityGfx.lineStyle(1, 0x444444, 1.0);
+      this.abilityGfx.strokeRect(ax, abY, abW, abH);
+    } else {
+      // Ready — class-colored fill + bright border
+      this.abilityGfx.fillStyle(tint, 0.25);
+      this.abilityGfx.fillRect(ax, abY, abW, abH);
+      this.abilityGfx.lineStyle(2, tint, 1.0);
+      this.abilityGfx.strokeRect(ax, abY, abW, abH);
     }
 
-    // Space bar label
-    const spaceText = this.add.text(cx, abY - 6, '[SPACE]', {
+    // Ability name
+    this.abilityTexts.push(this.add.text(cx, abY + 8, ab.name, {
+      fontFamily: 'monospace', fontSize: '8px',
+      color: isReady ? ab.color : '#555555',
+      stroke: '#000', strokeThickness: 1,
+    }).setOrigin(0.5).setDepth(101));
+
+    // Cooldown number or READY + mp cost
+    const subLabel = ab.cooldownRemaining > 0
+      ? `${Math.ceil(ab.cooldownRemaining)}s`
+      : `READY  ${ab.mpCost}mp`;
+    this.abilityTexts.push(this.add.text(cx, abY + 20, subLabel, {
+      fontFamily: 'monospace', fontSize: '7px',
+      color: isReady ? '#88bbff' : '#ffaa44',
+      stroke: '#000', strokeThickness: 1,
+    }).setOrigin(0.5).setDepth(101));
+
+    // SPACE label above
+    this.abilityTexts.push(this.add.text(cx, abY - 8, '[SPACE] Ability', {
       fontFamily: 'monospace', fontSize: '7px', color: '#776655',
-    }).setOrigin(0.5).setDepth(100);
-    this.abilityTexts.push(spaceText);
+    }).setOrigin(0.5).setDepth(100));
   }
 
   // ---- Death ----
@@ -389,103 +335,6 @@ export class UIScene extends Phaser.Scene {
         y += 15;
       }
     }
-  }
-
-  // ---- Inventory panel ---- WITH TOOLTIPS & BETTER UX
-  private rebuildInventory(): void {
-    this.invPanel.removeAll(true);
-    const pw = 300, ph = 260;
-    const px = (this.cameras.main.width - pw) / 2;
-    const py = (this.cameras.main.height - ph) / 2;
-
-    const bg = this.add.graphics();
-    this.drawPanel(bg, px, py, pw, ph);
-    this.invPanel.add(bg);
-
-    this.invPanel.add(this.add.text(px + pw / 2, py + 12, 'Inventory', {
-      fontFamily: 'monospace', fontSize: '14px', color: '#ddaa44',
-      stroke: '#000', strokeThickness: 1,
-    }).setOrigin(0.5));
-
-    const gs = this.scene.get('GameScene') as any;
-    const inv = gs?.inventoryManager;
-
-    // Equipment row
-    const eqY = py + 34;
-    const eqLabels = ['Weapon', 'Ability', 'Armor', 'Ring'];
-    const eqSlots = inv ? [inv.equipment.weapon, inv.equipment.ability, inv.equipment.armor, inv.equipment.ring] : [null, null, null, null];
-
-    for (let i = 0; i < 4; i++) {
-      const sx = px + 14 + i * 70;
-      bg.fillStyle(C.slotBorder); bg.fillRect(sx, eqY, 58, 40);
-      bg.fillStyle(C.slotBg); bg.fillRect(sx + 1, eqY + 1, 56, 38);
-
-      this.invPanel.add(this.add.text(sx + 29, eqY - 4, eqLabels[i], {
-        fontFamily: 'monospace', fontSize: '8px', color: '#8b6b3d',
-      }).setOrigin(0.5));
-
-      if (eqSlots[i]) {
-        const item = getItem(eqSlots[i]);
-        if (item) {
-          const ig = this.add.graphics();
-          ig.fillStyle(item.spriteColor); ig.fillRect(sx + 18, eqY + 6, 22, 22);
-          ig.fillStyle(item.spriteAccent); ig.fillRect(sx + 22, eqY + 10, 14, 14);
-          this.invPanel.add(ig);
-          this.invPanel.add(this.add.text(sx + 29, eqY + 32, item.name.split(' ')[0].substring(0, 8), {
-            fontFamily: 'monospace', fontSize: '7px', color: '#3d2410',
-          }).setOrigin(0.5));
-        }
-      }
-    }
-
-    // Bag grid (4x2) with item names
-    const bx = px + 14, by = eqY + 60;
-    this.invPanel.add(this.add.text(bx, by - 4, 'Bag (walk over loot bags to pick up):', {
-      fontFamily: 'monospace', fontSize: '10px', color: '#5c3a1e',
-      stroke: '#000', strokeThickness: 1,
-    }));
-
-    const ss = 36, sg = 6;
-    for (let i = 0; i < 8; i++) {
-      const col = i % 4, row = Math.floor(i / 4);
-      const sx = bx + col * (ss + sg), sy = by + 18 + row * (ss + sg + 14);
-      bg.fillStyle(C.slotBorder); bg.fillRect(sx, sy, ss, ss);
-      bg.fillStyle(C.slotBg); bg.fillRect(sx + 1, sy + 1, ss - 2, ss - 2);
-
-      // Slot number
-      this.invPanel.add(this.add.text(sx + 2, sy + 1, `${i + 1}`, {
-        fontFamily: 'monospace', fontSize: '7px', color: '#8b6b3d',
-      }));
-
-      if (inv?.inventory[i]?.itemId) {
-        const sd = inv.inventory[i];
-        const item = getItem(sd.itemId);
-        if (item) {
-          const ig = this.add.graphics();
-          ig.fillStyle(item.spriteColor); ig.fillRect(sx + 6, sy + 6, ss - 12, ss - 12);
-          ig.fillStyle(item.spriteAccent); ig.fillRect(sx + 10, sy + 10, ss - 20, ss - 20);
-          this.invPanel.add(ig);
-          if (sd.quantity > 1) {
-            this.invPanel.add(this.add.text(sx + ss - 3, sy + ss - 3, `${sd.quantity}`, {
-              fontFamily: 'monospace', fontSize: '9px', color: '#f0e4cc', stroke: '#000', strokeThickness: 2,
-            }).setOrigin(1, 1));
-          }
-          // Item name below slot
-          this.invPanel.add(this.add.text(sx + ss / 2, sy + ss + 2, item.name.substring(0, 10), {
-            fontFamily: 'monospace', fontSize: '7px', color: '#5c3a1e',
-          }).setOrigin(0.5));
-        }
-      } else {
-        // Empty slot hint
-        this.invPanel.add(this.add.text(sx + ss / 2, sy + ss / 2, '—', {
-          fontFamily: 'monospace', fontSize: '12px', color: '#b0a080',
-        }).setOrigin(0.5));
-      }
-    }
-
-    this.invPanel.add(this.add.text(px + pw / 2, py + ph - 14, 'Press I to close  |  Walk over loot bags to pick up items', {
-      fontFamily: 'monospace', fontSize: '8px', color: '#8b6b3d',
-    }).setOrigin(0.5));
   }
 
   // ---- Quest Log panel ---- BIGGER TEXT
@@ -702,6 +551,8 @@ export class UIScene extends Phaser.Scene {
     enemies: { x: number; y: number }[];
     questWaypoints: { x: number; y: number; index: number }[];
     portals?: { x: number; y: number }[];
+    isDungeon?: boolean;
+    dungeonRooms?: { x: number; y: number; w: number; h: number; type: string; cleared: boolean }[];
   }): void {
     // Store for world map
     this.lastMinimapData = d;
@@ -712,89 +563,159 @@ export class UIScene extends Phaser.Scene {
     const r = this.mmRadius;
     g.clear();
 
-    const viewRadius = 900;
-    const scale = r / viewRadius;
-
-    // Biome rings
-    const worldCenter = d.worldSize / 2;
-    const wcMmX = (worldCenter - d.playerX) * scale;
-    const wcMmY = (worldCenter - d.playerY) * scale;
-
-    const worldRadius = d.worldSize / 2;
-    const biomeRings = [
-      { maxDist: 1.0, color: 0x8aabbf },
-      { maxDist: 0.75, color: 0x5a7a4a },
-      { maxDist: 0.40, color: 0x6b3a2e },
-      { maxDist: 0.15, color: 0x2a1a3e },
-    ];
-    for (const ring of biomeRings) {
-      const ringR = ring.maxDist * worldRadius * scale;
-      g.fillStyle(ring.color, 0.7);
-      g.fillCircle(cx + wcMmX, cy + wcMmY, ringR);
-    }
-
-    // Enemy dots
-    for (const e of d.enemies) {
-      const ex = (e.x - d.playerX) * scale;
-      const ey = (e.y - d.playerY) * scale;
-      const distFromCenter = Math.sqrt(ex * ex + ey * ey);
-      if (distFromCenter < r - 2) {
-        g.fillStyle(0xcc3333, 0.9);
-        g.fillCircle(cx + ex, cy + ey, 1.5);
+    if (d.isDungeon && d.dungeonRooms && d.dungeonRooms.length > 0) {
+      // ---- DUNGEON minimap: draw actual room rectangles ----
+      // Scale so all rooms fit in the minimap circle
+      let minRX = Infinity, minRY = Infinity, maxRX = 0, maxRY = 0;
+      for (const room of d.dungeonRooms) {
+        minRX = Math.min(minRX, room.x);
+        minRY = Math.min(minRY, room.y);
+        maxRX = Math.max(maxRX, room.x + room.w);
+        maxRY = Math.max(maxRY, room.y + room.h);
       }
-    }
+      const dungeonW = maxRX - minRX;
+      const dungeonH = maxRY - minRY;
+      const dungeonScale = (r * 1.8) / Math.max(dungeonW, dungeonH);
 
-    // Portal dots
-    if (d.portals) {
-      for (const p of d.portals) {
-        const px = (p.x - d.playerX) * scale;
-        const py = (p.y - d.playerY) * scale;
-        const distFromCenter = Math.sqrt(px * px + py * py);
-        if (distFromCenter < r - 2) {
-          const pulse = Math.sin(Date.now() * 0.006) * 0.3 + 0.7;
-          g.fillStyle(0xcc88ff, pulse);
-          g.fillCircle(cx + px, cy + py, 3);
-          g.lineStyle(1, 0x6622aa, pulse);
-          g.strokeCircle(cx + px, cy + py, 3);
+      // Dark background
+      g.fillStyle(0x111111, 0.85);
+      g.fillCircle(cx, cy, r);
+
+      for (const room of d.dungeonRooms) {
+        const rx = cx + (room.x - minRX - dungeonW / 2) * dungeonScale;
+        const ry = cy + (room.y - minRY - dungeonH / 2) * dungeonScale;
+        const rw = room.w * dungeonScale;
+        const rh = room.h * dungeonScale;
+
+        // Room fill based on type and cleared state
+        const roomColor = room.type === 'boss' ? 0xcc3333
+          : room.type === 'start' ? 0x44aa44
+          : room.cleared ? 0x446688 : 0x335566;
+        g.fillStyle(roomColor, room.cleared ? 0.9 : 0.5);
+        g.fillRect(rx, ry, rw, rh);
+
+        // Border
+        g.lineStyle(1, room.cleared ? 0x88ccff : 0x445566, 0.8);
+        g.strokeRect(rx, ry, rw, rh);
+
+        // Boss room X marker
+        if (room.type === 'boss') {
+          g.lineStyle(1, 0xff8888, 0.9);
+          g.beginPath();
+          g.moveTo(rx + 2, ry + 2); g.lineTo(rx + rw - 2, ry + rh - 2);
+          g.moveTo(rx + rw - 2, ry + 2); g.lineTo(rx + 2, ry + rh - 2);
+          g.strokePath();
         }
       }
+
+      // Draw corridors as thin lines between adjacent room centers
+      for (let i = 0; i < d.dungeonRooms.length - 1; i++) {
+        const a = d.dungeonRooms[i];
+        const b = d.dungeonRooms[i + 1];
+        const ax = cx + (a.x + a.w / 2 - minRX - dungeonW / 2) * dungeonScale;
+        const ay = cy + (a.y + a.h / 2 - minRY - dungeonH / 2) * dungeonScale;
+        const bx = cx + (b.x + b.w / 2 - minRX - dungeonW / 2) * dungeonScale;
+        const by_ = cy + (b.y + b.h / 2 - minRY - dungeonH / 2) * dungeonScale;
+        g.lineStyle(2, 0x334455, 0.7);
+        g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by_); g.strokePath();
+      }
+
+      // Player dot (relative to dungeon space)
+      const pRx = cx + (d.playerX - minRX - dungeonW / 2) * dungeonScale;
+      const pRy = cy + (d.playerY - minRY - dungeonH / 2) * dungeonScale;
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(pRx, pRy, 3);
+      g.lineStyle(1, 0x000000, 0.8);
+      g.strokeCircle(pRx, pRy, 3);
+
+      // Enemy dots
+      for (const e of d.enemies) {
+        const ex = cx + (e.x - minRX - dungeonW / 2) * dungeonScale;
+        const ey = cy + (e.y - minRY - dungeonH / 2) * dungeonScale;
+        g.fillStyle(0xff4444, 0.9);
+        g.fillCircle(ex, ey, 2);
+      }
+
+    } else {
+      // ---- OVERWORLD minimap: biome rings ----
+      const viewRadius = 900;
+      const scale = r / viewRadius;
+
+      const worldCenter = d.worldSize / 2;
+      const wcMmX = (worldCenter - d.playerX) * scale;
+      const wcMmY = (worldCenter - d.playerY) * scale;
+
+      const worldRadius = d.worldSize / 2;
+      const biomeRings = [
+        { maxDist: 1.0, color: 0x8aabbf },
+        { maxDist: 0.75, color: 0x5a7a4a },
+        { maxDist: 0.40, color: 0x6b3a2e },
+        { maxDist: 0.15, color: 0x2a1a3e },
+      ];
+      for (const ring of biomeRings) {
+        const ringR = ring.maxDist * worldRadius * scale;
+        g.fillStyle(ring.color, 0.7);
+        g.fillCircle(cx + wcMmX, cy + wcMmY, ringR);
+      }
+
+      // Enemy dots
+      for (const e of d.enemies) {
+        const ex = (e.x - d.playerX) * scale;
+        const ey = (e.y - d.playerY) * scale;
+        const distFromCenter = Math.sqrt(ex * ex + ey * ey);
+        if (distFromCenter < r - 2) {
+          g.fillStyle(0xcc3333, 0.9);
+          g.fillCircle(cx + ex, cy + ey, 1.5);
+        }
+      }
+
+      // Portal dots
+      if (d.portals) {
+        for (const p of d.portals) {
+          const px = (p.x - d.playerX) * scale;
+          const py = (p.y - d.playerY) * scale;
+          const distFromCenter = Math.sqrt(px * px + py * py);
+          if (distFromCenter < r - 2) {
+            const pulse = Math.sin(Date.now() * 0.006) * 0.3 + 0.7;
+            g.fillStyle(0xcc88ff, pulse);
+            g.fillCircle(cx + px, cy + py, 3);
+            g.lineStyle(1, 0x6622aa, pulse);
+            g.strokeCircle(cx + px, cy + py, 3);
+          }
+        }
+      }
+
+      // Player direction arrow
+      const velLen = Math.sqrt(d.playerVelX ** 2 + d.playerVelY ** 2);
+      if (velLen > 10) {
+        const angle = Math.atan2(d.playerVelY, d.playerVelX);
+        const arrowLen = 10;
+        const tipX = cx + Math.cos(angle) * arrowLen;
+        const tipY = cy + Math.sin(angle) * arrowLen;
+        g.lineStyle(2, 0xffffff, 1);
+        g.beginPath(); g.moveTo(cx, cy); g.lineTo(tipX, tipY); g.strokePath();
+        const headLen = 4, headAngle = 0.5;
+        g.beginPath();
+        g.moveTo(tipX, tipY);
+        g.lineTo(tipX - Math.cos(angle - headAngle) * headLen, tipY - Math.sin(angle - headAngle) * headLen);
+        g.moveTo(tipX, tipY);
+        g.lineTo(tipX - Math.cos(angle + headAngle) * headLen, tipY - Math.sin(angle + headAngle) * headLen);
+        g.strokePath();
+      }
+
+      // Player dot
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(cx, cy, 3);
+      g.lineStyle(1, 0x000000, 0.5);
+      g.strokeCircle(cx, cy, 3);
     }
 
-    // Player direction arrow
-    const velLen = Math.sqrt(d.playerVelX ** 2 + d.playerVelY ** 2);
-    if (velLen > 10) {
-      const angle = Math.atan2(d.playerVelY, d.playerVelX);
-      const arrowLen = 10;
-      const tipX = cx + Math.cos(angle) * arrowLen;
-      const tipY = cy + Math.sin(angle) * arrowLen;
-
-      g.lineStyle(2, 0xffffff, 1);
-      g.beginPath();
-      g.moveTo(cx, cy);
-      g.lineTo(tipX, tipY);
-      g.strokePath();
-
-      const headLen = 4;
-      const headAngle = 0.5;
-      g.beginPath();
-      g.moveTo(tipX, tipY);
-      g.lineTo(tipX - Math.cos(angle - headAngle) * headLen, tipY - Math.sin(angle - headAngle) * headLen);
-      g.moveTo(tipX, tipY);
-      g.lineTo(tipX - Math.cos(angle + headAngle) * headLen, tipY - Math.sin(angle + headAngle) * headLen);
-      g.strokePath();
-    }
-
-    // Player dot
-    g.fillStyle(0xffffff, 1);
-    g.fillCircle(cx, cy, 3);
-    g.lineStyle(1, 0x000000, 0.5);
-    g.strokeCircle(cx, cy, 3);
-
-    // Quest waypoint markers
+    // Quest waypoint markers (overworld only — no quests in dungeon)
     this.minimapQuestTexts.forEach(t => t.destroy());
     this.minimapQuestTexts = [];
 
-    if (d.questWaypoints) {
+    if (!d.isDungeon && d.questWaypoints) {
+      const wpScale = r / 900;
       for (const wp of d.questWaypoints) {
         const dx = wp.x - d.playerX;
         const dy = wp.y - d.playerY;
@@ -802,15 +723,15 @@ export class UIScene extends Phaser.Scene {
         if (dist < 5) continue;
 
         const angle = Math.atan2(dy, dx);
-        const mmDist = dist * scale;
+        const mmDist = dist * wpScale;
 
         let markerX: number, markerY: number;
         if (mmDist > r - 8) {
           markerX = cx + Math.cos(angle) * (r - 6);
           markerY = cy + Math.sin(angle) * (r - 6);
         } else {
-          markerX = cx + dx * scale;
-          markerY = cy + dy * scale;
+          markerX = cx + dx * wpScale;
+          markerY = cy + dy * wpScale;
         }
 
         g.fillStyle(0xddaa44, 1);

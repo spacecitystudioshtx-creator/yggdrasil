@@ -7,6 +7,7 @@ import { LootManager } from '../systems/LootManager';
 import { InventoryManager } from '../systems/InventoryManager';
 import { QuestManager } from '../systems/QuestManager';
 import { AbilitySystem } from '../systems/AbilitySystem';
+import { MusicManager } from '../systems/MusicManager';
 import { TILE_SIZE, ItemType, BulletPatternType } from '@yggdrasil/shared';
 import { DungeonDef, DungeonBossDef } from '../data/DungeonDatabase';
 import { getItem } from '../data/ItemDatabase';
@@ -98,6 +99,10 @@ export class DungeonScene extends Phaser.Scene {
   // Exit portal
   private exitPortal: Phaser.Physics.Arcade.Sprite | null = null;
   private dungeonComplete: boolean = false;
+  private isExiting: boolean = false;   // guard to prevent double-exit
+
+  // Enemy health bars (world-space graphics)
+  private enemyHealthBars: Map<Phaser.Physics.Arcade.Sprite, Phaser.GameObjects.Graphics> = new Map();
 
   // Room door graphics
   private doorGraphics: Phaser.GameObjects.Graphics[] = [];
@@ -107,6 +112,9 @@ export class DungeonScene extends Phaser.Scene {
 
   // Inventory/Quest refs passed from GameScene
   inventoryManager!: InventoryManager;
+
+  // Music
+  private musicManager!: MusicManager;
   questManager!: QuestManager;
 
   constructor() {
@@ -129,6 +137,8 @@ export class DungeonScene extends Phaser.Scene {
     this.bossDialogueText = null;
     this.exitPortal = null;
     this.dungeonComplete = false;
+    this.isExiting = false;
+    this.enemyHealthBars = new Map();
     this.doorGraphics = [];
     // Resolve class tint for damage flash restoration
     const classDef = this.config.classId ? getClass(this.config.classId) : null;
@@ -176,8 +186,9 @@ export class DungeonScene extends Phaser.Scene {
     // 6b. Ability system (space bar)
     this.abilitySystem = new AbilitySystem(this, this.playerController, this.projectileManager, this.config.classId ?? 'viking');
 
-    // 7. Camera
+    // 7. Camera — tight follow (lerp 1.0) to prevent aim offset in dungeon
     this.cameraController = new CameraController(this, this.player);
+    this.cameraController.setTightFollow();
     // Override camera bounds for dungeon size
     this.cameras.main.setBounds(0, 0, this.dungeonPixelW, this.dungeonPixelH);
     this.physics.world.setBounds(0, 0, this.dungeonPixelW, this.dungeonPixelH);
@@ -193,9 +204,16 @@ export class DungeonScene extends Phaser.Scene {
       runChildUpdate: false,
     });
 
+    // Wire enemy-wall collision (must happen after both enemyGroup and groundLayer exist)
+    if (this.groundLayer) {
+      this.physics.add.collider(this.enemyGroup, this.groundLayer);
+    }
+
     // 10. Collision: player vs walls
     if (this.groundLayer) {
       this.physics.add.collider(this.player, this.groundLayer);
+      // Enemies also collide with walls — must be set up AFTER enemyGroup is created
+      // (wired below after group creation)
     }
 
     // 11. Collision: player projectiles vs enemies
@@ -217,6 +235,30 @@ export class DungeonScene extends Phaser.Scene {
       },
       this,
     );
+
+    // 11b. Collision: projectiles vs walls — stop on wall hit
+    if (this.groundLayer) {
+      this.physics.add.collider(
+        this.projectileManager.playerProjectiles,
+        this.groundLayer,
+        (proj) => {
+          const p = proj as Phaser.Physics.Arcade.Sprite;
+          if (p.active) this.projectileManager.deactivateProjectile(p, true);
+        },
+        undefined,
+        this,
+      );
+      this.physics.add.collider(
+        this.projectileManager.enemyProjectiles,
+        this.groundLayer,
+        (proj) => {
+          const p = proj as Phaser.Physics.Arcade.Sprite;
+          if (p.active) this.projectileManager.deactivateProjectile(p, false);
+        },
+        undefined,
+        this,
+      );
+    }
 
     // 13. Loot manager
     this.lootManager = new LootManager(this);
@@ -251,6 +293,10 @@ export class DungeonScene extends Phaser.Scene {
     if (!this.scene.isActive('UIScene')) {
       this.scene.launch('UIScene');
     }
+
+    // 19. Music — start dungeon track
+    this.musicManager = new MusicManager(this);
+    this.musicManager.playMusic('music_dungeon');
   }
 
   update(time: number, delta: number): void {
@@ -277,7 +323,8 @@ export class DungeonScene extends Phaser.Scene {
 
     // Space bar: use ability
     if (this.inputManager.isAbilityPressed() && !this.playerController.isDead) {
-      this.abilitySystem.useAbility(worldPoint.x, worldPoint.y);
+      const used = this.abilitySystem.useAbility(worldPoint.x, worldPoint.y);
+      if (used) this.musicManager?.playSFX('sfx_ability');
     }
 
     // Shooting
@@ -291,7 +338,8 @@ export class DungeonScene extends Phaser.Scene {
     }
 
     // Check R to nexus (exit dungeon)
-    if (this.inputManager.isNexusPressed() && !this.playerController.isDead) {
+    if (this.inputManager.isNexusPressed() && !this.playerController.isDead && !this.isExiting) {
+      this.isExiting = true;
       this.exitDungeon();
       return;
     }
@@ -308,9 +356,10 @@ export class DungeonScene extends Phaser.Scene {
     this.checkRoomCleared();
 
     // Check exit portal pickup
-    if (this.exitPortal && this.exitPortal.active) {
+    if (this.exitPortal && this.exitPortal.active && !this.isExiting) {
       const dist = distanceBetween(this.player.x, this.player.y, this.exitPortal.x, this.exitPortal.y);
-      if (dist < 24) {
+      if (dist < 28) {
+        this.isExiting = true;
         this.exitDungeon();
         return;
       }
@@ -327,7 +376,7 @@ export class DungeonScene extends Phaser.Scene {
       xpToNext: this.playerController.xpToNext,
     });
 
-    // Emit minimap data (simplified for dungeon — just enemies)
+    // Emit minimap data — include dungeon room shapes so UI can draw them
     const enemies: { x: number; y: number }[] = [];
     this.enemyGroup.getChildren().forEach((child) => {
       const e = child as Phaser.Physics.Arcade.Sprite;
@@ -336,6 +385,15 @@ export class DungeonScene extends Phaser.Scene {
     if (this.boss && this.boss.active) {
       enemies.push({ x: this.boss.x, y: this.boss.y });
     }
+    // Pass room data for the dungeon minimap rendering
+    const dungeonRooms = this.rooms.map(r => ({
+      x: r.x * TILE_SIZE,
+      y: r.y * TILE_SIZE,
+      w: r.w * TILE_SIZE,
+      h: r.h * TILE_SIZE,
+      type: r.type,
+      cleared: r.cleared,
+    }));
     this.events.emit('minimapUpdate', {
       playerX: this.player.x,
       playerY: this.player.y,
@@ -344,122 +402,140 @@ export class DungeonScene extends Phaser.Scene {
       worldSize: Math.max(this.dungeonPixelW, this.dungeonPixelH),
       enemies,
       questWaypoints: [],
+      dungeonRooms,
+      isDungeon: true,
     });
   }
 
   // ========================================================================
-  // DUNGEON GENERATION — BSP-style connected rooms
+  // DUNGEON GENERATION — Snake layout with varying room sizes
   // ========================================================================
 
+  /**
+   * Generates a snake-path dungeon:
+   * - Rooms vary in size and alternate direction (right, down, right, up, etc.)
+   * - Corridors connect room edges with 3-tile-wide passages
+   * - Each combat room gets a mini-boss enemy
+   * - Final room (boss) has the real boss; defeating it spawns the exit portal
+   * - Total canvas is pre-calculated before carving so tilemap fits exactly
+   */
   private generateDungeon(def: DungeonDef): void {
     const numRooms = randomInt(def.minRooms, def.maxRooms);
-    const padding = 4; // tiles between rooms
+    const CORRIDOR = 5;   // tiles between rooms (corridor length)
+    const PAD = 2;         // world edge padding
 
-    // Linear room layout: rooms placed left to right with corridors
-    let cursorX = 2; // starting tile X
+    // Direction cycle: right, down, right, up, right, down...
+    const DIRS: ('right' | 'down' | 'up')[] = ['right', 'down', 'right', 'up'];
 
-    // Dungeon height: tallest room + padding
-    const maxRoomH = def.roomHeight + 6;
-    this.dungeonHeight = maxRoomH + 4;
+    // First pass: calculate room grid positions (in tile units) and world size
+    type RoomPlacement = { rx: number; ry: number; rw: number; rh: number; type: 'start' | 'combat' | 'boss' };
+    const placements: RoomPlacement[] = [];
+
+    let cx = PAD, cy = PAD;
 
     for (let i = 0; i < numRooms; i++) {
-      const isLast = (i === numRooms - 1);
-      const isFirst = (i === 0);
+      // Vary room size — combat rooms can be bigger, boss room is largest
+      const isFirst = i === 0;
+      const isLast = i === numRooms - 1;
+      const baseW = isLast ? def.roomWidth + 6 : def.roomWidth + randomInt(-4, 6);
+      const baseH = isLast ? def.roomHeight + 6 : def.roomHeight + randomInt(-4, 6);
+      const rw = Math.max(12, baseW);
+      const rh = Math.max(10, baseH);
 
-      // Room dimensions with some variance
-      const rw = def.roomWidth + randomInt(-2, 2);
-      const rh = def.roomHeight + randomInt(-2, 2);
-
-      // Center vertically
-      const ry = Math.floor((this.dungeonHeight - rh) / 2);
-      const rx = cursorX;
-
-      let roomType: 'start' | 'combat' | 'treasure' | 'boss' = 'combat';
-      if (isFirst) roomType = 'start';
-      else if (isLast) roomType = 'boss';
-      else if (i === Math.floor(numRooms / 2) && numRooms > 3) roomType = 'treasure';
-
-      this.rooms.push({
-        x: rx,
-        y: ry,
-        w: rw,
-        h: rh,
-        centerX: (rx + rw / 2) * TILE_SIZE,
-        centerY: (ry + rh / 2) * TILE_SIZE,
-        type: roomType,
-        cleared: roomType === 'start', // start room is already clear
-        enemies: [],
-        doorOpen: roomType === 'start',
+      placements.push({
+        rx: cx,
+        ry: cy,
+        rw,
+        rh,
+        type: isFirst ? 'start' : isLast ? 'boss' : 'combat',
       });
 
-      cursorX += rw + padding;
-    }
-
-    this.dungeonWidth = cursorX + 2;
-    this.dungeonPixelW = this.dungeonWidth * TILE_SIZE;
-    this.dungeonPixelH = this.dungeonHeight * TILE_SIZE;
-  }
-
-  private createTilemap(def: DungeonDef): void {
-    // Build tile data
-    const data: number[][] = [];
-    for (let y = 0; y < this.dungeonHeight; y++) {
-      data[y] = [];
-      for (let x = 0; x < this.dungeonWidth; x++) {
-        data[y][x] = def.tileWall; // default = wall
+      if (i < numRooms - 1) {
+        const dir = DIRS[i % DIRS.length];
+        if (dir === 'right')      { cx = cx + rw + CORRIDOR; }
+        else if (dir === 'down')  { cy = cy + rh + CORRIDOR; }
+        else if (dir === 'up')    { cy = cy - (def.roomHeight + CORRIDOR); if (cy < PAD) cy = PAD; }
       }
     }
 
-    // Carve rooms
+    // World bounds = bounding box of all rooms + padding
+    let maxX = 0, maxY = 0;
+    for (const p of placements) {
+      maxX = Math.max(maxX, p.rx + p.rw + PAD);
+      maxY = Math.max(maxY, p.ry + p.rh + PAD);
+    }
+    // Ensure nothing is out of bounds (clamp negative positions)
+    const minX = Math.min(0, ...placements.map(p => p.rx));
+    const minY = Math.min(0, ...placements.map(p => p.ry));
+    const shiftX = minX < 0 ? -minX + PAD : 0;
+    const shiftY = minY < 0 ? -minY + PAD : 0;
+
+    this.dungeonWidth  = maxX + shiftX + PAD;
+    this.dungeonHeight = maxY + shiftY + PAD;
+    this.dungeonPixelW = this.dungeonWidth  * TILE_SIZE;
+    this.dungeonPixelH = this.dungeonHeight * TILE_SIZE;
+
+    // Build DungeonRoom objects (shifted into positive space)
+    for (const p of placements) {
+      const rx = p.rx + shiftX;
+      const ry = p.ry + shiftY;
+      this.rooms.push({
+        x:       rx,
+        y:       ry,
+        w:       p.rw,
+        h:       p.rh,
+        centerX: (rx + p.rw / 2) * TILE_SIZE,
+        centerY: (ry + p.rh / 2) * TILE_SIZE,
+        type:    p.type,
+        cleared: p.type === 'start',
+        enemies: [],
+        doorOpen: p.type === 'start',
+      });
+    }
+  }
+
+  private createTilemap(def: DungeonDef): void {
+    // Build tile data — all walls by default
+    const data: number[][] = [];
+    for (let y = 0; y < this.dungeonHeight; y++) {
+      data[y] = new Array(this.dungeonWidth).fill(def.tileWall);
+    }
+
+    const carve = (tx: number, ty: number): void => {
+      if (tx >= 0 && tx < this.dungeonWidth && ty >= 0 && ty < this.dungeonHeight) {
+        data[ty][tx] = def.tileGround;
+      }
+    };
+
+    // Carve rooms (interior only — border stays wall)
     for (const room of this.rooms) {
-      for (let y = room.y; y < room.y + room.h; y++) {
-        for (let x = room.x; x < room.x + room.w; x++) {
-          if (y >= 0 && y < this.dungeonHeight && x >= 0 && x < this.dungeonWidth) {
-            // Border = wall, interior = ground
-            if (x === room.x || x === room.x + room.w - 1 ||
-                y === room.y || y === room.y + room.h - 1) {
-              data[y][x] = def.tileWall;
-            } else {
-              data[y][x] = def.tileGround;
-            }
-          }
+      for (let ty = room.y + 1; ty < room.y + room.h - 1; ty++) {
+        for (let tx = room.x + 1; tx < room.x + room.w - 1; tx++) {
+          carve(tx, ty);
         }
       }
     }
 
-    // Carve corridors between adjacent rooms
+    // Carve corridors between consecutive rooms using center-to-center L-shaped paths
     for (let i = 0; i < this.rooms.length - 1; i++) {
       const a = this.rooms[i];
       const b = this.rooms[i + 1];
 
-      // Horizontal corridor from right edge of room A to left edge of room B
-      const corridorY = Math.floor(this.dungeonHeight / 2);
-      const startX = a.x + a.w - 1;
-      const endX = b.x;
+      // Connect centers with an L-shaped 3-wide corridor
+      const ax = Math.floor(a.x + a.w / 2);
+      const ay = Math.floor(a.y + a.h / 2);
+      const bx = Math.floor(b.x + b.w / 2);
+      const by = Math.floor(b.y + b.h / 2);
 
-      for (let x = startX; x <= endX; x++) {
-        // 3-tile wide corridor
-        for (let dy = -1; dy <= 1; dy++) {
-          const ty = corridorY + dy;
-          if (ty >= 0 && ty < this.dungeonHeight && x >= 0 && x < this.dungeonWidth) {
-            data[ty][x] = def.tileGround;
-          }
-        }
+      // Horizontal leg from ax → bx at ay
+      const hMinX = Math.min(ax, bx), hMaxX = Math.max(ax, bx);
+      for (let tx = hMinX; tx <= hMaxX; tx++) {
+        for (let dy = -1; dy <= 1; dy++) carve(tx, ay + dy);
       }
-
-      // Also carve doorways in the room walls at corridor height
-      for (let dy = -1; dy <= 1; dy++) {
-        const ty = corridorY + dy;
-        if (ty >= 0 && ty < this.dungeonHeight) {
-          // Right wall of room A
-          if (a.x + a.w - 1 < this.dungeonWidth) {
-            data[ty][a.x + a.w - 1] = def.tileGround;
-          }
-          // Left wall of room B
-          if (b.x >= 0) {
-            data[ty][b.x] = def.tileGround;
-          }
-        }
+      // Vertical leg from ay → by at bx
+      const vMinY = Math.min(ay, by), vMaxY = Math.max(ay, by);
+      for (let ty = vMinY; ty <= vMaxY; ty++) {
+        for (let dx = -1; dx <= 1; dx++) carve(bx + dx, ty);
       }
     }
 
@@ -474,7 +550,7 @@ export class DungeonScene extends Phaser.Scene {
     this.groundLayer = this.tilemap.createLayer(0, tileset, 0, 0)!;
     this.groundLayer.setDepth(0);
 
-    // Set collision on wall tiles
+    // Set collision on wall tiles for BOTH player and enemies
     this.groundLayer.setCollision(def.tileWall);
   }
 
@@ -494,45 +570,50 @@ export class DungeonScene extends Phaser.Scene {
         continue;
       }
 
-      // Combat / treasure rooms get enemies
-      const baseCount = room.type === 'treasure' ? 3 : 5 + def.difficulty;
-      const count = Math.floor(baseCount * (1 + runeLevel * 0.1));
+      // 3-5 enemies per room depending on difficulty
+      const baseCount = 3 + Math.floor(def.difficulty / 3);  // 3 for diff 1-2, 4 for 3-5, 5 for 6+
+      const count = Math.min(5, Math.floor(baseCount * (1 + runeLevel * 0.1)));
+
+      // Room aggro range: enemies stay idle until player steps inside the room
+      const roomAggroW = room.w * TILE_SIZE * 0.6;  // 60% of room width in pixels
+      const roomAggroH = room.h * TILE_SIZE * 0.6;
 
       for (let i = 0; i < count; i++) {
         // Random position inside room (avoid walls)
         const ex = (room.x + 2 + Math.random() * (room.w - 4)) * TILE_SIZE;
         const ey = (room.y + 2 + Math.random() * (room.h - 4)) * TILE_SIZE;
 
-        const level = Math.min(20, def.difficulty * 2 + Math.floor(runeLevel * 0.5));
-        const hpMult = 1 + runeLevel * 0.1;
-        const dmgMult = 1 + runeLevel * 0.08;
+        // Dungeon enemies: harder than overworld but fair
+        const level = Math.min(20, def.difficulty * 3 + Math.floor(runeLevel * 0.5));
+        const hpMult = (1 + runeLevel * 0.1) * 1.4;   // reasonable health pools
+        const dmgMult = (1 + runeLevel * 0.08) * 1.2;  // meaningful but not one-shot damage
 
-        const textureKey = def.enemyTextures[Math.floor(Math.random() * def.enemyTextures.length)];
-        const isSmall = textureKey === 'enemy_small';
-
+        // Always use medium sprite (bigger presence in room)
+        const textureKey = 'enemy_medium';
         const enemy = this.physics.add.sprite(ex, ey, textureKey);
         enemy.setDepth(5);
-        enemy.body!.setSize(isSmall ? 6 : 14, isSmall ? 6 : 14);
+        enemy.setScale(1.0 + Math.random() * 0.3);  // slight size variation
+        enemy.body!.setSize(14, 14);
 
         const patterns: ('aimed' | 'radial' | 'shotgun')[] = ['aimed'];
-        if (def.difficulty >= 4) patterns.push('shotgun');
-        if (def.difficulty >= 7) patterns.push('radial');
+        if (def.difficulty >= 3) patterns.push('shotgun');
+        if (def.difficulty >= 6) patterns.push('radial');
 
         enemy.setData('enemyData', {
           level,
-          maxHp: Math.floor((30 + level * 20) * hpMult),
-          hp: Math.floor((30 + level * 20) * hpMult),
+          maxHp: Math.floor((40 + level * 20) * hpMult),
+          hp: Math.floor((40 + level * 20) * hpMult),
           damage: Math.floor((3 + level * 2) * dmgMult),
-          speed: 35 + level * 4,
-          aggroRange: 10,
-          fireRate: 0.3 + level * 0.06,
-          fireCooldown: 1 + Math.random() * 2,
-          behavior: 'wander',
+          speed: 45 + level * 3,      // reasonable speed
+          aggroRange: Math.max(roomAggroW, roomAggroH),  // aggro when player enters the room
+          fireRate: 0.35 + level * 0.04,
+          fireCooldown: 0.8 + Math.random() * 1.5,
+          behavior: 'idle',           // idle until player enters room
           wanderAngle: Math.random() * Math.PI * 2,
-          wanderTimer: Math.random() * 2,
+          wanderTimer: 0,
           textureKey,
           patternType: patterns[Math.floor(Math.random() * patterns.length)],
-          projectileSpeed: 120 + level * 15,
+          projectileSpeed: 110 + level * 10,
           projectileTexture: 'projectile_enemy',
         });
         enemy.setData('level', level);
@@ -576,15 +657,9 @@ export class DungeonScene extends Phaser.Scene {
     this.enemyGroup.add(this.boss);
     room.enemies.push(this.boss);
 
-    // Boss health bar (UI overlay — screen space)
-    this.bossHealthBar = this.add.graphics().setDepth(200).setScrollFactor(0);
-    this.bossNameText = this.add.text(400, 12, bossDef.name, {
-      fontFamily: 'monospace',
-      fontSize: '12px',
-      color: '#ff8888',
-      stroke: '#000',
-      strokeThickness: 2,
-    }).setOrigin(0.5).setDepth(201).setScrollFactor(0);
+    // Boss music + health bar are deferred until player enters the boss room
+    // (spawnBoss is called at scene create, before player walks there)
+    // They are initialized in updateBoss on the first frame the boss is in range
   }
 
   private updateBoss(dt: number): void {
@@ -592,6 +667,23 @@ export class DungeonScene extends Phaser.Scene {
 
     const bossDef = this.bossData.def;
     const hpRatio = this.bossData.hp / this.bossData.maxHp;
+
+    // Lazy-init health bar + music when player first gets close to boss room
+    if (!this.bossHealthBar) {
+      const distToBoss = distanceBetween(this.player.x, this.player.y, this.boss.x, this.boss.y);
+      if (distToBoss > 400) return; // don't engage until player is nearby
+      this.musicManager?.playMusic('music_boss');
+      this.bossHealthBar = this.add.graphics().setScrollFactor(0).setDepth(200);
+      const screenCX = this.cameras.main.width / 2;
+      this.bossNameText = this.add.text(screenCX, 12, bossDef.name, {
+        fontFamily: 'monospace',
+        fontSize: '11px',
+        color: '#ff8888',
+        stroke: '#000',
+        strokeThickness: 3,
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
+      this.events.emit('notification', bossDef.name + ' approaches!', '#ff8888');
+    }
 
     // Determine current phase
     let phaseIndex = 0;
@@ -661,22 +753,31 @@ export class DungeonScene extends Phaser.Scene {
     // Update spiral angle for spiral patterns
     this.bossData.spiralAngle += dt * 2;
 
-    // Update boss health bar
+    // Update boss health bar (screen-space: setScrollFactor(0) but draw at screen coords)
     if (this.bossHealthBar) {
       this.bossHealthBar.clear();
-      const barW = 200, barH = 10;
-      const bx = 400 - barW / 2, by = 24;
+      const screenW = this.cameras.main.width;
+      const barW = Math.floor(screenW * 0.5), barH = 12;
+      const bx = (screenW - barW) / 2, by = 26;
 
-      this.bossHealthBar.fillStyle(0x222222, 0.8);
-      this.bossHealthBar.fillRect(bx, by, barW, barH);
+      // Background
+      this.bossHealthBar.fillStyle(0x111111, 0.9);
+      this.bossHealthBar.fillRoundedRect(bx - 2, by - 2, barW + 4, barH + 4, 3);
 
-      const color = hpRatio > 0.5 ? 0xcc3333 : hpRatio > 0.25 ? 0xcc6633 : 0xcc0000;
+      // HP fill
+      const color = hpRatio > 0.5 ? 0xcc3333 : hpRatio > 0.25 ? 0xcc6633 : 0xff2222;
       this.bossHealthBar.fillStyle(color, 1);
-      this.bossHealthBar.fillRect(bx, by, barW * Math.max(0, hpRatio), barH);
+      this.bossHealthBar.fillRect(bx, by, Math.max(0, barW * hpRatio), barH);
 
       // Border
-      this.bossHealthBar.lineStyle(1, 0x888888);
+      this.bossHealthBar.lineStyle(1, 0x888888, 0.8);
       this.bossHealthBar.strokeRect(bx, by, barW, barH);
+
+      // Phase glow at thresholds
+      if (hpRatio < 0.5 && hpRatio > 0.48) {
+        this.bossHealthBar.lineStyle(2, 0xff4444, 1);
+        this.bossHealthBar.strokeRect(bx - 3, by - 3, barW + 6, barH + 6);
+      }
     }
   }
 
@@ -831,15 +932,24 @@ export class DungeonScene extends Phaser.Scene {
       if (!data) return;
 
       const dist = distanceBetween(enemy.x, enemy.y, this.player.x, this.player.y);
-      const aggroRange = data.aggroRange * TILE_SIZE;
+      const aggroRange = data.aggroRange as number;
 
-      if (dist < aggroRange) {
-        // Chase
-        if (dist > 80) {
+      // Once aggro'd, stay aggro'd until player is very far (>aggroRange * 2)
+      if (!data.aggro && dist < aggroRange) {
+        data.aggro = true;
+      } else if (data.aggro && dist > aggroRange * 2.5) {
+        data.aggro = false;
+      }
+
+      if (data.aggro) {
+        // Chase — maintain a minimum shooting distance but always pursue
+        if (dist > 70) {
           const angle = angleBetween(enemy.x, enemy.y, this.player.x, this.player.y);
           enemy.setVelocity(Math.cos(angle) * data.speed, Math.sin(angle) * data.speed);
         } else {
-          enemy.setVelocity(0, 0);
+          // Too close — strafe/circle
+          const angle = angleBetween(enemy.x, enemy.y, this.player.x, this.player.y) + Math.PI * 0.5;
+          enemy.setVelocity(Math.cos(angle) * data.speed * 0.5, Math.sin(angle) * data.speed * 0.5);
         }
 
         // Fire
@@ -849,18 +959,48 @@ export class DungeonScene extends Phaser.Scene {
           this.fireEnemyPattern(enemy, data);
         }
       } else {
-        // Wander
+        // Idle wander until player enters the room
         data.wanderTimer -= dt;
         if (data.wanderTimer <= 0) {
           data.wanderAngle = Math.random() * Math.PI * 2;
           data.wanderTimer = 2 + Math.random() * 3;
         }
         enemy.setVelocity(
-          Math.cos(data.wanderAngle) * data.speed * 0.3,
-          Math.sin(data.wanderAngle) * data.speed * 0.3,
+          Math.cos(data.wanderAngle) * data.speed * 0.15,
+          Math.sin(data.wanderAngle) * data.speed * 0.15,
         );
       }
+
+      // Update health bar
+      this.updateEnemyHealthBar(enemy, data);
     });
+  }
+
+  private updateEnemyHealthBar(enemy: Phaser.Physics.Arcade.Sprite, data: any): void {
+    // Only show bar when damaged
+    if (data.hp >= data.maxHp) {
+      const existing = this.enemyHealthBars.get(enemy);
+      if (existing) { existing.destroy(); this.enemyHealthBars.delete(enemy); }
+      return;
+    }
+
+    let bar = this.enemyHealthBars.get(enemy);
+    if (!bar) {
+      bar = this.add.graphics().setDepth(20);
+      this.enemyHealthBars.set(enemy, bar);
+    }
+
+    bar.clear();
+    const bw = 22, bh = 3;
+    const bx = enemy.x - bw / 2;
+    const by = enemy.y - 14;
+    const ratio = Math.max(0, data.hp / data.maxHp);
+
+    bar.fillStyle(0x222222, 0.9);
+    bar.fillRect(bx, by, bw, bh);
+    const col = ratio > 0.5 ? 0x44cc44 : ratio > 0.25 ? 0xcccc44 : 0xcc4444;
+    bar.fillStyle(col, 1);
+    bar.fillRect(bx, by, bw * ratio, bh);
   }
 
   private fireEnemyPattern(enemy: Phaser.Physics.Arcade.Sprite, data: any): void {
@@ -939,6 +1079,7 @@ export class DungeonScene extends Phaser.Scene {
     if (!data) return;
 
     data.hp -= damage;
+    this.musicManager?.playSFX('sfx_hit_enemy');
 
     enemy.setTint(0xffffff);
     this.time.delayedCall(80, () => {
@@ -956,8 +1097,18 @@ export class DungeonScene extends Phaser.Scene {
       const level = enemy.getData('level') ?? 1;
       this.playerController.grantXP(level * 15);
 
-      // Spawn loot
-      this.lootManager.spawnLootBag(enemy.x, enemy.y, this.config.dungeonDef.difficulty);
+      // 50/50: instant heal instead of a loot bag
+      if (Math.random() < 0.5) {
+        const healAmt = Math.floor(this.playerController.maxHp * 0.08); // heal 8% max HP
+        this.playerController.hp = Math.min(this.playerController.maxHp, this.playerController.hp + healAmt);
+        this.showDamageNumber(enemy.x, enemy.y - 10, healAmt, false); // reuse as green number
+        this.events.emit('notification', `+${healAmt} HP`, '#44cc44');
+        this.musicManager?.playSFX('sfx_heal');
+      }
+
+      // Clean up health bar
+      const bar = this.enemyHealthBars.get(enemy);
+      if (bar) { bar.destroy(); this.enemyHealthBars.delete(enemy); }
 
       enemy.destroy();
     }
@@ -981,6 +1132,7 @@ export class DungeonScene extends Phaser.Scene {
     this.projectileManager.deactivateProjectile(projectile, false);
     const damage = projectile.getData('damage') ?? 10;
     this.playerController.takeDamage(damage);
+    this.musicManager?.playSFX('sfx_player_hit');
 
     // Red flash — restore class tint afterwards
     this.player.setTint(0xff4444);
@@ -1004,25 +1156,20 @@ export class DungeonScene extends Phaser.Scene {
   private onBossDefeated(bossSprite: Phaser.Physics.Arcade.Sprite): void {
     this.dungeonComplete = true;
 
+    // Boss defeated — switch back to dungeon music (or fade to silence)
+    this.musicManager?.stopMusic();
+
     // Grant big XP
     const bossLevel = this.config.dungeonDef.difficulty * 2;
     this.playerController.grantXP(bossLevel * 50);
 
-    // Spawn boss-specific loot using the boss's actual loot table
     const bossDef = this.config.dungeonDef.boss;
-    const bossLootItems: { itemId: string; quantity: number }[] = [];
-    for (const drop of bossDef.loot) {
-      if (Math.random() < drop.dropChance) {
-        const qty = randomInt(drop.minAmount, drop.maxAmount);
-        bossLootItems.push({ itemId: drop.itemId, quantity: qty });
-      }
-    }
-    // Spawn boss-specific items as a dedicated bag
-    if (bossLootItems.length > 0) {
-      this.lootManager.spawnLootBagWithItems(bossSprite.x, bossSprite.y, bossLootItems);
-    }
-    // Also spawn a regular high-tier loot bag
-    this.lootManager.spawnLootBag(bossSprite.x + 16, bossSprite.y, this.config.dungeonDef.difficulty + 5);
+
+    // No loot bags — instant full heal on boss kill
+    this.playerController.hp = this.playerController.maxHp;
+    this.playerController.mp = this.playerController.maxMp;
+    this.musicManager?.playSFX('sfx_heal');
+
     const bossRoom = this.rooms[this.rooms.length - 1];
 
     // Remove boss
@@ -1096,30 +1243,45 @@ export class DungeonScene extends Phaser.Scene {
   // ========================================================================
 
   private exitDungeon(): void {
-    // Capture state BEFORE stopping scene (stopping destroys game objects)
+    // Stop dungeon music
+    this.musicManager?.stopMusic();
+
+    // Capture return data immediately (before any scene transitions)
     const returnData = {
       hp: this.playerController.hp,
       mp: this.playerController.mp,
       level: this.playerController.level,
       xp: this.playerController.xp,
       dungeonComplete: this.dungeonComplete,
+      completedDungeonId: this.dungeonComplete ? this.config.dungeonDef.id : undefined,
     };
 
-    // If GameScene is sleeping, wake it. If stopped, start it.
-    if (this.scene.isSleeping('GameScene')) {
-      this.scene.wake('GameScene');
-    } else if (!this.scene.isActive('GameScene')) {
-      this.scene.start('GameScene');
+    // Disable player movement (don't use isDead — just remove velocity)
+    this.playerController.isDead = true;
+    if (this.player.body) {
+      (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
     }
 
-    // Emit return event with player state BEFORE stopping this scene
-    const gs = this.scene.get('GameScene');
-    if (gs) {
-      gs.events.emit('returnFromDungeon', returnData);
-    }
+    // Fade camera to black
+    this.cameras.main.fadeOut(500, 0, 0, 0);
 
-    // Now stop this scene (after event has been emitted and received)
-    this.scene.stop('DungeonScene');
+    this.cameras.main.once('camerafadeoutcomplete', () => {
+      // Wake or restart GameScene — scene.run() handles all states
+      const gs = this.scene.get('GameScene');
+
+      if (this.scene.isSleeping('GameScene')) {
+        this.scene.wake('GameScene');
+      } else if (!this.scene.isActive('GameScene')) {
+        this.scene.start('GameScene');
+      }
+
+      // Emit return event on the next frame so GameScene is fully awake
+      this.time.delayedCall(100, () => {
+        if (gs) gs.events.emit('returnFromDungeon', returnData);
+        // Stop dungeon scene after event is dispatched
+        this.time.delayedCall(50, () => this.scene.stop('DungeonScene'));
+      });
+    });
   }
 
   // ========================================================================

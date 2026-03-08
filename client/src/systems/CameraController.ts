@@ -57,4 +57,14 @@ export class CameraController {
   setZoom(zoom: number): void {
     this.camera.setZoom(zoom);
   }
+
+  /** Use tight follow (lerp 1.0) to fix aiming offset in dungeons */
+  setTightFollow(): void {
+    this.camera.startFollow(this.target, true, 1.0, 1.0);
+  }
+
+  /** Use smooth follow (lerp 0.12) for overworld */
+  setSmoothFollow(): void {
+    this.camera.startFollow(this.target, true, 0.12, 0.12);
+  }
 }

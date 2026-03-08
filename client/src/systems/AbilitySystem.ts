@@ -186,7 +186,7 @@ export class AbilitySystem {
   private classId: string;
   private abilities: ClassAbilities;
 
-  // Cooldown tracking (seconds remaining)
+  // Single cooldown — only ability1 is used
   private cooldowns: [number, number, number] = [0, 0, 0];
 
   // Active buffs
@@ -227,42 +227,23 @@ export class AbilitySystem {
     }
   }
 
-  /** Try to use the highest unlocked ability. Returns true if ability was used. */
+  /** Use the class ability (always ability1, always unlocked). */
   useAbility(mouseWorldX: number, mouseWorldY: number): boolean {
-    const level = this.playerController.level;
+    const ability = this.abilities.ability1;
 
-    // Find the highest unlocked ability that's off cooldown
-    const abilitiesArray = [this.abilities.ability1, this.abilities.ability2, this.abilities.ability3];
-    let bestIndex = -1;
-
-    for (let i = 2; i >= 0; i--) {
-      const ab = abilitiesArray[i];
-      if (level >= ab.unlockLevel && this.cooldowns[i] <= 0 && this.playerController.mp >= ab.mpCost) {
-        bestIndex = i;
-        break;
-      }
+    if (this.cooldowns[0] > 0) {
+      // Cooldown is visible in the ability widget — no notification spam needed
+      return false;
     }
-
-    if (bestIndex === -1) {
-      // No ability available — show notification
-      this.scene.events.emit('notification', 'Ability not ready!', '#cc4444');
+    if (this.playerController.mp < ability.mpCost) {
+      this.scene.events.emit('notification', 'Not enough MP!', '#cc4444');
       return false;
     }
 
-    const ability = abilitiesArray[bestIndex];
-
-    // Consume MP
     this.playerController.mp -= ability.mpCost;
-
-    // Set cooldown
-    this.cooldowns[bestIndex] = ability.cooldown;
-
-    // Execute the ability
+    this.cooldowns[0] = ability.cooldown;
     this.executeAbility(ability, mouseWorldX, mouseWorldY);
-
-    // Show notification
     this.scene.events.emit('notification', ability.name, ability.color);
-
     return true;
   }
 
@@ -373,7 +354,7 @@ export class AbilitySystem {
     }
   }
 
-  /** Get current ability cooldown info for UI display */
+  /** Get ability info for UI display — single ability, always unlocked. */
   getAbilityInfo(): {
     name: string;
     cooldownRemaining: number;
@@ -382,17 +363,15 @@ export class AbilitySystem {
     unlocked: boolean;
     color: string;
   }[] {
-    const level = this.playerController.level;
-    const abilitiesArray = [this.abilities.ability1, this.abilities.ability2, this.abilities.ability3];
-
-    return abilitiesArray.map((ab, i) => ({
+    const ab = this.abilities.ability1;
+    return [{
       name: ab.name,
-      cooldownRemaining: this.cooldowns[i],
+      cooldownRemaining: this.cooldowns[0],
       cooldownTotal: ab.cooldown,
       mpCost: ab.mpCost,
-      unlocked: level >= ab.unlockLevel,
+      unlocked: true,
       color: ab.color,
-    }));
+    }];
   }
 
   /** Get the active defense multiplier (for damage reduction) */

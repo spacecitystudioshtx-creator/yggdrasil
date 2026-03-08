@@ -213,6 +213,9 @@ export class PlayerController {
     this.hp = this.maxHp;
     this.mp = this.maxMp;
 
+    // Notify the scene so dungeon portals can be gated on level
+    this.scene.events.emit('playerLevelUp', this.level);
+
     // Visual effect
     const text = this.scene.add.text(
       this.sprite.x,

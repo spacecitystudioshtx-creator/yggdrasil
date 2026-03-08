@@ -12,6 +12,27 @@ export class PreloadScene extends Phaser.Scene {
     super({ key: 'PreloadScene' });
   }
 
+  preload(): void {
+    // Load audio assets
+    const audioFiles = [
+      // Music tracks
+      ['music_overworld', 'assets/audio/music_overworld.mp3'],
+      ['music_dungeon', 'assets/audio/music_dungeon.mp3'],
+      ['music_boss', 'assets/audio/music_boss.mp3'],
+      // Sound effects
+      ['sfx_ability', 'assets/audio/sfx_ability.mp3'],
+      ['sfx_hit_enemy', 'assets/audio/sfx_hit_enemy.mp3'],
+      ['sfx_player_hit', 'assets/audio/sfx_player_hit.mp3'],
+      ['sfx_heal', 'assets/audio/sfx_heal.mp3'],
+      ['sfx_level_up', 'assets/audio/sfx_level_up.mp3'],
+      ['sfx_portal', 'assets/audio/sfx_portal.mp3'],
+    ];
+
+    for (const [key, path] of audioFiles) {
+      this.load.audio(key, path);
+    }
+  }
+
   create(): void {
     // Generate all placeholder textures
     SpriteGenerator.generateAll(this);

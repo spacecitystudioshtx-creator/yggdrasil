@@ -162,14 +162,30 @@ export class DeathScene extends Phaser.Scene {
     const btnY = py + ph + 20;
 
     // New Character button
-    this.createButton(cx - 100, btnY, 180, 28, 'New Character', 0x44aa33, () => {
-      this.scene.stop('DeathScene');
+    this.createButton(cx - 100, btnY, 180, 28, 'New Character  [ENTER]', 0x44aa33, () => {
       this.scene.stop('UIScene');
+      this.scene.stop('GameScene');
+      this.scene.stop('DungeonScene');
+      this.scene.stop('DeathScene');
+      this.scene.start('CharacterSelectScene');
+    });
+
+    // Also allow ENTER key to start new character
+    this.input.keyboard!.once('keydown-ENTER', () => {
+      this.scene.stop('UIScene');
+      this.scene.stop('GameScene');
+      this.scene.stop('DungeonScene');
+      this.scene.stop('DeathScene');
       this.scene.start('CharacterSelectScene');
     });
 
     // View Graveyard button
-    this.createButton(cx + 100, btnY, 180, 28, 'Graveyard', 0x6644aa, () => {
+    this.createButton(cx + 100, btnY, 180, 28, 'Graveyard  [SPACE]', 0x6644aa, () => {
+      this.toggleGraveyard();
+    });
+
+    // SPACE key toggles graveyard
+    this.input.keyboard!.on('keydown-SPACE', () => {
       this.toggleGraveyard();
     });
 

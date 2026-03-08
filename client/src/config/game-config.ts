@@ -7,6 +7,7 @@ import { NexusScene } from '../scenes/NexusScene';
 import { CharacterSelectScene } from '../scenes/CharacterSelectScene';
 import { DeathScene } from '../scenes/DeathScene';
 import { LoreScene } from '../scenes/LoreScene';
+import { EndingScene } from '../scenes/EndingScene';
 import { UIScene } from '../scenes/UIScene';
 
 export const GAME_WIDTH = 800;

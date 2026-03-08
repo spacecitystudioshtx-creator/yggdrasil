@@ -6,16 +6,16 @@ import { WorldRenderer } from '../systems/WorldRenderer';
 import { InputManager } from '../systems/InputManager';
 import { CameraController } from '../systems/CameraController';
 import { InventoryManager } from '../systems/InventoryManager';
-import { QuestManager } from '../systems/QuestManager';
 import { LootManager } from '../systems/LootManager';
-import { TILE_SIZE, REALM_SIZE, ItemType, BiomeType } from '@yggdrasil/shared';
+import { TILE_SIZE, REALM_SIZE, ItemType } from '@yggdrasil/shared';
 import { getItem } from '../data/ItemDatabase';
-import { getBiomeForDistance } from '@yggdrasil/shared';
-import { getDungeonForBiome, DungeonDef } from '../data/DungeonDatabase';
+import { getDungeon, DungeonDef } from '../data/DungeonDatabase';
 import { getClass, ClassDef } from '../data/ClassDatabase';
 import { FameManager } from '../systems/FameManager';
 import { AbilitySystem } from '../systems/AbilitySystem';
-import { distanceBetween } from '../utils/MathUtils';
+import { ProgressManager, PlayerRunState } from '../systems/ProgressManager';
+import { MusicManager } from '../systems/MusicManager';
+import { distanceBetween, angleBetween } from '../utils/MathUtils';
 
 /**
  * GameScene: The main gameplay scene.
@@ -32,7 +32,6 @@ export class GameScene extends Phaser.Scene {
   enemyManager!: EnemyManager;
   cameraController!: CameraController;
   inventoryManager!: InventoryManager;
-  questManager!: QuestManager;
   lootManager!: LootManager;
 
   // Player reference (Phaser sprite)
@@ -41,8 +40,6 @@ export class GameScene extends Phaser.Scene {
   // Crosshair
   crosshair!: Phaser.GameObjects.Image;
 
-  // Biome tracking for quests
-  private lastBiome: string = '';
   private worldPixelSize: number = 0;
 
   // Class system
@@ -55,6 +52,12 @@ export class GameScene extends Phaser.Scene {
   // Fame system (permadeath)
   fameManager!: FameManager;
 
+  // Progress system (per-class checkpoints)
+  progressManager!: ProgressManager;
+
+  // Music & SFX
+  musicManager!: MusicManager;
+
   // Dungeon portals
   private portalGroup!: Phaser.Physics.Arcade.Group;
   private activePortals: {
@@ -65,14 +68,49 @@ export class GameScene extends Phaser.Scene {
   }[] = [];
   private readonly PORTAL_LIFETIME = 30000; // 30 seconds
 
+  // Dungeon progression — which dungeon unlocks at which level
+  private readonly DUNGEON_PROGRESSION: { level: number; dungeonId: string }[] = [
+    { level: 5,  dungeonId: 'frostheim_caverns' },
+    { level: 6,  dungeonId: 'verdant_hollows' },
+    { level: 8,  dungeonId: 'muspelheim_forge' },
+    { level: 10, dungeonId: 'helheim_sanctum' },
+  ];
+  // Track which dungeons we have already spawned a portal for
+  private spawnedDungeonPortals: Set<string> = new Set();
+  // Flag set by DungeonScene return to trigger next portal spawn
+  private pendingNextDungeonId: string | null = null;
+
+  // World final boss (Fenrir — spawns at center when all dungeons cleared)
+  private worldBoss: Phaser.Physics.Arcade.Sprite | null = null;
+  private worldBossData: {
+    hp: number; maxHp: number;
+    fireCooldown: number;
+    spiralAngle: number;
+    phase: number;
+  } | null = null;
+  private worldBossHealthBar: Phaser.GameObjects.Graphics | null = null;
+  private worldBossNameText: Phaser.GameObjects.Text | null = null;
+  private worldBossSpawned: boolean = false;
+  private worldBossAwake: boolean = false;   // dormant until all dungeons cleared
+  private worldBossDormantLabel: Phaser.GameObjects.Text | null = null;
+  private worldBossHomeX: number = 0;  // center of world — Fenrir's fixed lair
+  private worldBossHomeY: number = 0;
+
+  // Ice wall (flat earth) proximity joke
+  private iceWallLabelShown: boolean = false;
+
   constructor() {
     super({ key: 'GameScene' });
   }
+
+  // Checkpoint stage to start at (0 = default Midgard, 1-4 = later stages)
+  private startStage: number = 0;
 
   init(data: any): void {
     if (data?.classId) {
       this.classId = data.classId;
     }
+    this.startStage = data?.startStage ?? 0;
     this.classDef = getClass(this.classId) ?? null;
   }
 
@@ -183,7 +221,7 @@ export class GameScene extends Phaser.Scene {
     this.input.setDefaultCursor('none');
 
     // ==========================================
-    // 12. Inventory, Quest, and Loot systems
+    // 12. Inventory and Loot systems
     // ==========================================
 
     // 12a. Inventory manager
@@ -194,95 +232,22 @@ export class GameScene extends Phaser.Scene {
       const gear = this.classDef.startingGear;
       this.inventoryManager.equipStartingGear(gear.weapon, gear.ability, gear.armor, gear.ring);
     } else {
-      // Fallback: Viking defaults
       this.inventoryManager.equipStartingGear('sword_t0', 'ability_shield_t0', 'armor_heavy_t0', 'ring_t0');
     }
 
-    // Give a couple of starting potions
+    // Starting potions
     this.inventoryManager.addItem('potion_hp_small', 3);
     this.inventoryManager.addItem('potion_mp_small', 2);
 
-    // 12b. Quest manager
-    this.questManager = new QuestManager();
-
-    // Auto-accept starter quests
-    this.questManager.acceptQuest('main_01');
-    this.questManager.acceptQuest('side_01');
-    this.questManager.acceptQuest('side_05');
-
-    // The "Well-Armed" quest should complete immediately since we already equipped gear
-    this.questManager.reportEquip('weapon');
-
-    // Quest manager event wiring
-    this.questManager.onChange(() => {
-      this.emitQuestUpdate();
-    });
-    this.questManager.onComplete((quest) => {
-      // Grant quest rewards
-      const rewards = quest.def.rewards;
-      this.playerController.grantXP(rewards.xp);
-      this.inventoryManager.gold += rewards.gold;
-      for (const itemId of rewards.itemIds) {
-        this.inventoryManager.addItem(itemId);
-      }
-      this.events.emit('notification', `Quest Complete: ${quest.def.name}!`, '#44cc44');
-
-      // Auto-accept next available quests
-      this.time.delayedCall(500, () => {
-        const available = this.questManager.getAvailable(this.playerController.level);
-        for (const q of available) {
-          if (this.questManager.activeQuests.length < this.questManager.maxActiveQuests) {
-            this.questManager.acceptQuest(q.id);
-            this.events.emit('notification', `New Quest: ${q.name}`, '#ddaa44');
-          }
-        }
-      });
-    });
-    this.questManager.onProgress((_quest, obj) => {
-      if (obj.current >= obj.targetCount) {
-        this.events.emit('notification', `Objective Complete: ${obj.description}`, '#88cc44');
-      }
-    });
-
-    // 12c. Loot manager
+    // 12b. Loot manager
     this.lootManager = new LootManager(this);
 
-    // Wire loot pickup to inventory + quest tracking
-    this.lootManager.onPickup((items) => {
-      for (const { itemId, quantity } of items) {
-        const added = this.inventoryManager.addItem(itemId, quantity);
-        const item = getItem(itemId);
+    // No loot bags spawn anymore — instant heals on kill.
+    // LootManager kept for possible future use; pickup callback is no-op.
+    this.lootManager.onPickup((_items) => {});
 
-        if (added && item) {
-          // Show pickup notification
-          this.events.emit('notification', `+${quantity} ${item.name}`, '#ffffff');
-
-          // Report collection to quest manager
-          this.questManager.reportCollect(itemId);
-
-          // Auto-use consumables: HP/MP potions if health/mana is low
-          if (item.type === ItemType.Consumable) {
-            // Don't auto-use, let the player manage their own potions
-          }
-        } else if (!added) {
-          this.events.emit('notification', 'Inventory full!', '#cc4444');
-        }
-      }
-    });
-
-    // Inventory change listener — update quest tracker on equip/unequip
-    this.inventoryManager.onChange(() => {
-      // Check equipment quest objectives
-      if (this.inventoryManager.equipment.weapon) {
-        this.questManager.reportEquip('weapon');
-      }
-    });
-
-    // Emit initial quest state
-    this.emitQuestUpdate();
-
-    // Auto-complete starter quests if conditions already met
-    this.questManager.reportLevel(this.playerController.level);
+    // 12c. Spawn dormant Fenrir near player start — a warning of what's coming
+    this.spawnDormantFenrir();
 
     // 13. Dungeon portal group
     this.portalGroup = this.physics.add.group({
@@ -293,11 +258,27 @@ export class GameScene extends Phaser.Scene {
     // 14. Listen for return from dungeon
     this.events.on('returnFromDungeon', this.onReturnFromDungeon, this);
 
+    // Listen for level-up events to gate dungeon portals
+    this.events.on('playerLevelUp', this.onPlayerLevelUp, this);
+
     // 15. Fame manager (permadeath tracking)
     this.fameManager = new FameManager();
 
+    // 15b. Progress manager (per-class checkpoints)
+    this.progressManager = new ProgressManager();
+
+    // Apply checkpoint start stage — boost player level and pre-unlock dungeon portals
+    this.applyStartStage();
+
+    // Restore mid-run state from localStorage (survives browser refresh)
+    this.restoreRunState();
+
     // 16. Listen for permadeath
     this.events.on('playerDeath', this.onPermaDeath, this);
+
+    // 17. Music
+    this.musicManager = new MusicManager(this);
+    this.musicManager.playMusic('music_overworld');
   }
 
   update(time: number, delta: number): void {
@@ -336,7 +317,8 @@ export class GameScene extends Phaser.Scene {
 
     // Space bar: use ability
     if (this.inputManager.isAbilityPressed() && !this.playerController.isDead) {
-      this.abilitySystem.useAbility(worldPoint.x, worldPoint.y);
+      const used = this.abilitySystem.useAbility(worldPoint.x, worldPoint.y);
+      if (used) this.musicManager?.playSFX('sfx_ability');
     }
 
     // R key: return to Nexus (Asgard)
@@ -345,11 +327,16 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Track biome for quests
-    this.checkBiomeChange();
-
     // Check portal proximity and lifetime
     this.updatePortals(dt);
+
+    // Ice wall proximity joke — show once when player gets near the edge
+    this.checkIceWallProximity();
+
+    // Update world boss if alive
+    if (this.worldBoss && this.worldBoss.active && this.worldBossData) {
+      this.updateWorldBoss(dt);
+    }
 
     // Emit player state for UI scene
     this.events.emit('playerUpdate', {
@@ -371,52 +358,7 @@ export class GameScene extends Phaser.Scene {
       if (e.active) enemies.push({ x: e.x, y: e.y });
     });
 
-    // Compute quest waypoints for minimap
-    const questWaypoints: { x: number; y: number; index: number }[] = [];
-    const center = this.worldPixelSize / 2;
-    this.questManager.activeQuests.forEach((quest, idx) => {
-      if (quest.isComplete) return;
-      for (const obj of quest.objectives) {
-        if (obj.current >= obj.targetCount) continue;
-        // Biome quests: point toward that biome ring
-        if (obj.type === 'reach_biome') {
-          let targetDist = 0.5; // default mid
-          if (obj.targetId === 'frozen_shores') targetDist = 0.85;
-          else if (obj.targetId === 'birch_forest') targetDist = 0.55;
-          else if (obj.targetId === 'volcanic_wastes') targetDist = 0.25;
-          else if (obj.targetId === 'niflheim_depths') targetDist = 0.05;
-          // Point from player toward that ring (toward center for inner, away for outer)
-          const dx = center - this.player.x;
-          const dy = center - this.player.y;
-          const len = Math.sqrt(dx * dx + dy * dy) || 1;
-          const targetR = targetDist * (this.worldPixelSize / 2);
-          questWaypoints.push({
-            x: center - (dx / len) * targetR,
-            y: center - (dy / len) * targetR,
-            index: idx + 1,
-          });
-          break; // one waypoint per quest
-        }
-        // Kill/collect quests: point toward nearest enemy
-        if (obj.type === 'kill') {
-          let nearestDist = Infinity;
-          let nearestPos = { x: center, y: center };
-          this.enemyManager.enemyGroup.getChildren().forEach((child) => {
-            const e = child as Phaser.Physics.Arcade.Sprite;
-            if (!e.active) return;
-            const d = Math.sqrt((e.x - this.player.x) ** 2 + (e.y - this.player.y) ** 2);
-            if (d < nearestDist) {
-              nearestDist = d;
-              nearestPos = { x: e.x, y: e.y };
-            }
-          });
-          questWaypoints.push({ x: nearestPos.x, y: nearestPos.y, index: idx + 1 });
-          break;
-        }
-      }
-    });
-
-    // Collect portal positions for minimap
+    // Portal positions for minimap
     const portals: { x: number; y: number }[] = [];
     for (const p of this.activePortals) {
       if (p.sprite.active) portals.push({ x: p.sprite.x, y: p.sprite.y });
@@ -429,45 +371,9 @@ export class GameScene extends Phaser.Scene {
       playerVelY: this.player.body?.velocity.y ?? 0,
       worldSize: this.worldPixelSize,
       enemies,
-      questWaypoints,
+      questWaypoints: [],
       portals,
     });
-  }
-
-  /** Check if the player has entered a new biome and report to quest manager */
-  private checkBiomeChange(): void {
-    const centerX = this.worldPixelSize / 2;
-    const centerY = this.worldPixelSize / 2;
-    const maxDist = this.worldPixelSize / 2;
-    const dist = Math.sqrt(
-      (this.player.x - centerX) ** 2 + (this.player.y - centerY) ** 2,
-    );
-    const normalizedDist = Math.min(1, dist / maxDist);
-    const biome = getBiomeForDistance(normalizedDist);
-
-    if (biome.biomeType !== this.lastBiome) {
-      const isFirst = this.lastBiome === '';
-      this.lastBiome = biome.biomeType;
-      this.questManager.reportBiome(biome.biomeType);
-      this.fameManager.reportBiome(biome.biomeType);
-      if (!isFirst) {
-        this.events.emit('notification', `Entered: ${biome.name}`, '#aaccff');
-      }
-    }
-  }
-
-  /** Emit quest tracker data for UIScene */
-  private emitQuestUpdate(): void {
-    const trackerData = this.questManager.activeQuests.map(q => ({
-      name: q.def.name,
-      objectives: q.objectives.map(o => ({
-        desc: o.description,
-        current: o.current,
-        target: o.targetCount,
-        done: o.current >= o.targetCount,
-      })),
-    }));
-    this.events.emit('questUpdate', trackerData);
   }
 
   private onProjectileHitEnemy(
@@ -494,36 +400,24 @@ export class GameScene extends Phaser.Scene {
     const baseDamage = this.playerController.getAttackDamage();
     const damageMultiplier = projectile.getData('damageMultiplier') ?? 1.0;
     const damage = Math.floor(baseDamage * damageMultiplier);
-    const enemyData = enemy.getData('enemyData');
     const killed = this.enemyManager.damageEnemy(enemy, damage);
 
     if (killed) {
-      // Grant XP
       const level = enemy.getData('level') ?? 1;
       const xpReward = level * 15;
       this.playerController.grantXP(xpReward);
-
-      // Report kill to quest manager and fame
-      const textureKey = enemyData?.textureKey ?? 'enemy_small';
-      this.questManager.reportKill(textureKey);
       this.fameManager.reportKill();
 
-      // Report level for quest tracking
-      this.questManager.reportLevel(this.playerController.level);
+      // SFX: enemy death / kill
+      this.musicManager?.playSFX('sfx_hit_enemy');
 
-      // Spawn loot bag at enemy's death position
-      const difficulty = level;
-      this.lootManager.spawnLootBag(enemy.x, enemy.y, difficulty);
-
-      // Chance to spawn dungeon portal based on biome
-      this.trySpawnDungeonPortal(enemy.x, enemy.y);
-
-      // Auto-complete any finished quests
-      for (const quest of this.questManager.activeQuests) {
-        if (quest.isComplete) {
-          this.questManager.completeQuest(quest.def.id);
-          break; // complete one at a time to avoid mutation issues
-        }
+      // 50% chance: instant heal drop (8% max HP)
+      if (Math.random() < 0.5) {
+        const healAmount = Math.ceil(this.playerController.maxHp * 0.08);
+        this.playerController.hp = Math.min(this.playerController.maxHp, this.playerController.hp + healAmount);
+        // Green sparkle at enemy position
+        this.showInstantHealEffect(enemy.x, enemy.y, healAmount);
+        this.musicManager?.playSFX('sfx_heal');
       }
     }
 
@@ -551,6 +445,7 @@ export class GameScene extends Phaser.Scene {
 
     const damage = projectile.getData('damage') ?? 10;
     this.playerController.takeDamage(damage);
+    this.musicManager?.playSFX('sfx_player_hit');
 
     // Red flash on player — restore class tint afterwards (not clearTint!)
     this.player.setTint(0xff4444);
@@ -588,6 +483,42 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private showInstantHealEffect(x: number, y: number, healAmount: number): void {
+    // Floating green +HEAL text
+    const text = this.add.text(x, y - 10, `+${healAmount} HP`, {
+      fontFamily: 'monospace',
+      fontSize: '10px',
+      color: '#44ee88',
+      stroke: '#000000',
+      strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(50);
+
+    this.tweens.add({
+      targets: text,
+      y: y - 35,
+      alpha: 0,
+      duration: 900,
+      ease: 'Power2',
+      onComplete: () => text.destroy(),
+    });
+
+    // Small green sparkle ring at heal position
+    const ring = this.add.graphics().setDepth(14);
+    ring.lineStyle(1, 0x44ee88, 0.9);
+    ring.strokeCircle(x, y, 4);
+    this.tweens.add({
+      targets: { r: 4 },
+      r: 22,
+      duration: 400,
+      onUpdate: (_tw: any, target: any) => {
+        ring.clear();
+        ring.lineStyle(1, 0x44ee88, 0.6);
+        ring.strokeCircle(x, y, target.r);
+      },
+      onComplete: () => ring.destroy(),
+    });
+  }
+
   // ========================================================================
   // NEXUS (ASGARD HUB) — R KEY
   // ========================================================================
@@ -620,6 +551,9 @@ export class GameScene extends Phaser.Scene {
 
   /** Handle permanent death — transition to DeathScene */
   private onPermaDeath(_data: { level: number; causeOfDeath: string }): void {
+    // Wipe saved run state on permadeath (fresh start required)
+    this.progressManager.clearRunState();
+
     // Wait for the death overlay countdown, then go to DeathScene
     this.time.delayedCall(3500, () => {
       this.clearAllPortals();
@@ -629,42 +563,47 @@ export class GameScene extends Phaser.Scene {
         classId: this.classId,
         level: this.playerController.level,
         killedBy: _data.causeOfDeath ?? 'Unknown',
-        maxBiome: this.lastBiome || 'Frozen Shores',
+        maxBiome: 'Midgard',
         fameManager: this.fameManager,
       });
     });
   }
 
   // ========================================================================
-  // DUNGEON PORTAL SYSTEM
+  // DUNGEON PORTAL SYSTEM — level-gated progression
   // ========================================================================
 
-  /** Try to spawn a dungeon portal when an enemy dies */
-  private trySpawnDungeonPortal(x: number, y: number): void {
-    // Determine which biome this position is in
-    const centerX = this.worldPixelSize / 2;
-    const centerY = this.worldPixelSize / 2;
-    const maxDist = this.worldPixelSize / 2;
-    const dist = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
-    const normalizedDist = Math.min(1, dist / maxDist);
-    const biome = getBiomeForDistance(normalizedDist);
+  /** Called when player levels up — spawn the gated dungeon portal if applicable */
+  private onPlayerLevelUp(newLevel: number): void {
+    this.musicManager?.playSFX('sfx_level_up');
 
-    // Look up the dungeon that spawns from this biome
-    const dungeonDef = getDungeonForBiome(biome.biomeType as BiomeType);
+    // Save run state on every level-up so a refresh restores the new level
+    this.saveRunState();
+
+    const entry = this.DUNGEON_PROGRESSION.find(e => e.level === newLevel);
+    if (!entry) return;
+    if (this.spawnedDungeonPortals.has(entry.dungeonId)) return;
+
+    // Small delay so the level-up text clears first
+    this.time.delayedCall(1200, () => {
+      this.spawnDungeonPortalNearPlayer(entry.dungeonId);
+    });
+  }
+
+  /** Spawn a dungeon portal next to the player */
+  private spawnDungeonPortalNearPlayer(dungeonId: string): void {
+    const dungeonDef = getDungeon(dungeonId);
     if (!dungeonDef) return;
 
-    // Roll the drop chance
-    if (Math.random() > dungeonDef.portalDropChance) return;
+    this.spawnedDungeonPortals.add(dungeonId);
 
-    // Limit to 3 active portals at once
-    if (this.activePortals.length >= 3) return;
+    const x = this.player.x + 40;
+    const y = this.player.y;
 
-    // Spawn portal sprite
-    const portal = this.physics.add.sprite(x, y - 10, 'portal');
+    const portal = this.physics.add.sprite(x, y, 'portal');
     portal.setDepth(8);
     this.portalGroup.add(portal);
 
-    // Pulsing animation
     this.tweens.add({
       targets: portal,
       scaleX: 1.3,
@@ -675,8 +614,7 @@ export class GameScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    // Label
-    const label = this.add.text(x, y + 8, dungeonDef.name, {
+    const label = this.add.text(x, y + 18, dungeonDef.name, {
       fontFamily: 'monospace',
       fontSize: '7px',
       color: '#cc88ff',
@@ -691,39 +629,34 @@ export class GameScene extends Phaser.Scene {
       label,
     });
 
-    this.events.emit('notification', `A portal to ${dungeonDef.name} has appeared!`, '#cc88ff');
+    this.events.emit('notification', `Portal to ${dungeonDef.name} has opened!`, '#cc88ff');
+    this.events.emit('notification', `Enter the dungeon to continue!`, '#ffdd44');
   }
 
-  /** Update portals: check lifetime, check player proximity for entry */
+  /** Update portals: portals never expire — they stay until entered. Re-anchor near player if too far. */
   private updatePortals(_dt: number): void {
     const now = this.time.now;
 
     for (let i = this.activePortals.length - 1; i >= 0; i--) {
       const p = this.activePortals[i];
 
-      // Despawn expired portals
-      if (now - p.spawnTime > this.PORTAL_LIFETIME) {
-        p.sprite.destroy();
-        p.label.destroy();
-        this.activePortals.splice(i, 1);
-        continue;
+      // Pulsing label opacity
+      p.label.setAlpha(Math.sin(now * 0.004) * 0.3 + 0.7);
+
+      // If player walks very far away (> 300px), teleport portal to stay nearby
+      const dist = distanceBetween(this.player.x, this.player.y, p.sprite.x, p.sprite.y);
+      if (dist > 300) {
+        const newX = this.player.x + 60;
+        const newY = this.player.y;
+        p.sprite.setPosition(newX, newY);
+        p.label.setPosition(newX, newY + 18);
       }
 
-      // Flash portal label as it approaches despawn (last 10 seconds)
-      const timeLeft = this.PORTAL_LIFETIME - (now - p.spawnTime);
-      if (timeLeft < 10000) {
-        p.label.setAlpha(Math.sin(now * 0.01) * 0.5 + 0.5);
-      }
-
-      // Check if player is close enough to enter
-      if (!this.playerController.isDead) {
-        const dist = distanceBetween(this.player.x, this.player.y, p.sprite.x, p.sprite.y);
-        if (dist < 20) {
-          this.enterDungeon(p.dungeonDef);
-          // Clean up all portals before entering
-          this.clearAllPortals();
-          return;
-        }
+      // Enter dungeon on contact
+      if (!this.playerController.isDead && dist < 20) {
+        this.enterDungeon(p.dungeonDef);
+        this.clearAllPortals();
+        return;
       }
     }
   }
@@ -751,6 +684,10 @@ export class GameScene extends Phaser.Scene {
       },
     };
 
+    // SFX + stop music before switching to dungeon
+    this.musicManager?.playSFX('sfx_portal');
+    this.musicManager?.stopMusic();
+
     // Sleep GameScene (preserves all state) and start DungeonScene
     this.scene.sleep('GameScene');
     this.scene.start('DungeonScene', config);
@@ -763,12 +700,19 @@ export class GameScene extends Phaser.Scene {
     level: number;
     xp: number;
     dungeonComplete: boolean;
+    completedDungeonId?: string;
   }): void {
     // Restore player stats from dungeon
     this.playerController.hp = data.hp;
     this.playerController.mp = data.mp;
     this.playerController.level = data.level;
     this.playerController.xp = data.xp;
+
+    // Persist run state after dungeon return
+    this.saveRunState();
+
+    // Resume overworld music
+    this.musicManager?.playMusic('music_overworld');
 
     // Grant invincibility on return
     this.playerController.grantInvincibility(3.0);
@@ -778,6 +722,32 @@ export class GameScene extends Phaser.Scene {
 
     if (data.dungeonComplete) {
       this.events.emit('notification', 'Dungeon Cleared! Welcome back to Midgard.', '#44cc44');
+
+      // Save checkpoint progress for this class
+      if (data.completedDungeonId) {
+        const stageIdx = ProgressManager.dungeonToStage(data.completedDungeonId);
+        this.progressManager.unlockStage(this.classId, stageIdx);
+      }
+
+      // Spawn the next dungeon portal in sequence (if any)
+      if (data.completedDungeonId) {
+        const currentIdx = this.DUNGEON_PROGRESSION.findIndex(e => e.dungeonId === data.completedDungeonId);
+        const next = this.DUNGEON_PROGRESSION[currentIdx + 1];
+        if (next && !this.spawnedDungeonPortals.has(next.dungeonId)) {
+          this.time.delayedCall(2000, () => {
+            this.spawnDungeonPortalNearPlayer(next.dungeonId);
+          });
+        } else if (!next) {
+          // All dungeons done — spawn the world final boss
+          this.time.delayedCall(2000, () => {
+            this.events.emit('notification', 'All dungeons cleared!', '#44cc44');
+            this.events.emit('notification', 'Head to the CENTER of Midgard...', '#ffdd44');
+          });
+          this.time.delayedCall(4000, () => {
+            this.spawnWorldBoss();
+          });
+        }
+      }
     } else {
       this.events.emit('notification', 'Returned to Midgard.', '#aaccff');
     }
@@ -790,5 +760,445 @@ export class GameScene extends Phaser.Scene {
       p.label.destroy();
     }
     this.activePortals = [];
+  }
+
+  // ========================================================================
+  // ICE WALL — Flat Earth Joke
+  // ========================================================================
+
+  /**
+   * Shows a notification once when the player wanders within ~400px of any world edge.
+   * The world is bounded by solid ice wall tiles, so they can't actually cross —
+   * this is just a fun flat-earther Easter egg.
+   */
+  private checkIceWallProximity(): void {
+    if (this.iceWallLabelShown) return;
+    const edgeDist = Math.min(
+      this.player.x,
+      this.player.y,
+      this.worldPixelSize - this.player.x,
+      this.worldPixelSize - this.player.y,
+    );
+    if (edgeDist < 400) {
+      this.iceWallLabelShown = true;
+      this.events.emit('notification', '❄  THE ICE WALL  ❄', '#aaddff');
+      this.time.delayedCall(600, () => {
+        this.events.emit('notification', 'The edge of the flat realm. NASA doesn\'t want you here.', '#88bbcc');
+      });
+    }
+  }
+
+  // ========================================================================
+  // CHECKPOINT / START STAGE
+  // ========================================================================
+
+  /**
+   * When the player selects a checkpoint stage on CharacterSelect,
+   * boost their level to the checkpoint's start level and pre-mark
+   * all earlier dungeons as already spawned so the right portal appears.
+   *
+   * Stage → dungeon portal mapping:
+   *   Stage 1 → verdant_hollows portal (already cleared frostheim)
+   *   Stage 2 → muspelheim_forge portal
+   *   Stage 3 → helheim_sanctum portal
+   *   Stage 4 → awaken Fenrir immediately
+   */
+  private applyStartStage(): void {
+    if (this.startStage <= 0) return;
+
+    // Stage → level lookup (matches STAGE_CHECKPOINTS)
+    const stageLevels = [1, 6, 8, 10, 10];
+    const targetLevel = stageLevels[Math.min(this.startStage, 4)];
+
+    // Set player level directly (bypass XP gain animation)
+    while (this.playerController.level < targetLevel) {
+      this.playerController.level++;
+      this.playerController.maxHp += this.playerController.vitality;
+      this.playerController.maxMp += this.playerController.wisdom;
+      this.playerController.hp = this.playerController.maxHp;
+      this.playerController.mp = this.playerController.maxMp;
+    }
+
+    // Mark all dungeons up to the previous stage as already done
+    // so the correct NEXT portal spawns
+    const clearedUpTo = this.startStage - 1; // 0-indexed into DUNGEON_PROGRESSION
+    for (let i = 0; i < clearedUpTo && i < this.DUNGEON_PROGRESSION.length; i++) {
+      this.spawnedDungeonPortals.add(this.DUNGEON_PROGRESSION[i].dungeonId);
+    }
+
+    if (this.startStage >= 4) {
+      // All dungeons cleared — awaken Fenrir right away
+      this.time.delayedCall(1500, () => {
+        this.events.emit('notification', 'All dungeons cleared — Fenrir awaits in the center!', '#ffdd44');
+        this.spawnWorldBoss();
+      });
+    } else {
+      // Spawn the correct next portal near the player
+      const nextPortal = this.DUNGEON_PROGRESSION[clearedUpTo];
+      if (nextPortal && !this.spawnedDungeonPortals.has(nextPortal.dungeonId)) {
+        this.time.delayedCall(1000, () => {
+          this.spawnDungeonPortalNearPlayer(nextPortal.dungeonId);
+        });
+      }
+    }
+
+    this.events.emit('notification', `Checkpoint restored — Level ${targetLevel}`, '#aaddff');
+  }
+
+  // ========================================================================
+  // RUN STATE PERSISTENCE — survive browser refresh
+  // ========================================================================
+
+  /**
+   * Save the player's current level, XP, HP, MP, and spawned portals to
+   * localStorage so a browser refresh restores their mid-run progress.
+   */
+  private saveRunState(): void {
+    const state: PlayerRunState = {
+      classId: this.classId,
+      level: this.playerController.level,
+      xp: this.playerController.xp,
+      maxHp: this.playerController.maxHp,
+      hp: this.playerController.hp,
+      maxMp: this.playerController.maxMp,
+      mp: this.playerController.mp,
+      spawnedPortals: Array.from(this.spawnedDungeonPortals).join(','),
+    };
+    this.progressManager.saveRunState(state);
+  }
+
+  /**
+   * Restore a previously saved run state after a browser refresh.
+   * Only restores if the saved state is for the same class and the player
+   * is currently at a lower level than the saved state (i.e. a real refresh,
+   * not a fresh start from CharacterSelect with a checkpoint).
+   */
+  private restoreRunState(): void {
+    const state = this.progressManager.loadRunState(this.classId);
+    if (!state) return;
+
+    // Don't restore a level-1 save (nothing meaningful to restore)
+    if (state.level <= 1) return;
+
+    // If a checkpoint already boosted us to a higher level than the saved state, skip
+    if (this.startStage > 0 && this.playerController.level >= state.level) return;
+
+    // Only restore if the saved level is higher than what we have now
+    // (checkpoint boost may have already set a level; respect whichever is higher)
+    if (state.level > this.playerController.level) {
+      // Fast-forward level (recalculate max HP/MP per level)
+      while (this.playerController.level < state.level) {
+        this.playerController.level++;
+        this.playerController.maxHp += this.playerController.vitality;
+        this.playerController.maxMp += this.playerController.wisdom;
+      }
+    }
+
+    // Restore XP position within the current level
+    this.playerController.xp = state.xp;
+
+    // Restore HP/MP (clamped to new maxes)
+    this.playerController.maxHp = state.maxHp;
+    this.playerController.maxMp = state.maxMp;
+    this.playerController.hp    = Math.min(state.hp, state.maxHp);
+    this.playerController.mp    = Math.min(state.mp, state.maxMp);
+
+    // Restore which portals were already spawned so we don't duplicate them
+    if (state.spawnedPortals) {
+      for (const id of state.spawnedPortals.split(',')) {
+        if (id) this.spawnedDungeonPortals.add(id);
+      }
+    }
+
+    // Spawn the correct next dungeon portal if not yet spawned
+    // (e.g. after refresh mid-run, the portal needs to re-appear)
+    for (const entry of this.DUNGEON_PROGRESSION) {
+      if (!this.spawnedDungeonPortals.has(entry.dungeonId) && state.level >= entry.level) {
+        this.time.delayedCall(1500, () => {
+          this.spawnDungeonPortalNearPlayer(entry.dungeonId);
+        });
+        break; // only spawn the first eligible one
+      }
+    }
+
+    this.events.emit('notification', `Run restored — Level ${state.level}`, '#aaddff');
+  }
+
+  // ========================================================================
+  // WORLD FINAL BOSS — Fenrir, The World Ender
+  // ========================================================================
+
+  /**
+   * Spawns a DORMANT Fenrir near the player's starting area.
+   * He is huge, terrifying, fires instant-kill shots, and cannot be damaged.
+   * He is a warning — not yet a fight.
+   * This is called once on create().
+   */
+  private spawnDormantFenrir(): void {
+    // Place him at the true center of the world — the dark inner sanctum.
+    // The player starts at 80% from center (outer Frozen Shores) so they won't
+    // encounter Fenrir unless they deliberately navigate all the way to the center.
+    const spawnX = this.worldPixelSize * 0.5;
+    const spawnY = this.worldPixelSize * 0.5;
+    this.worldBossHomeX = spawnX;
+    this.worldBossHomeY = spawnY;
+
+    this.worldBoss = this.physics.add.sprite(spawnX, spawnY, 'enemy_medium');
+    this.worldBoss.setScale(4.0);
+    this.worldBoss.setTint(0x330011);
+    this.worldBoss.setDepth(15);
+    this.worldBoss.body!.setSize(30, 30);
+    this.worldBoss.setAlpha(0.85);
+
+    // Dormant state — idle at center, instant-kill on contact, cannot be hurt
+    this.worldBossData = {
+      hp: 1,        // placeholder — not used while dormant
+      maxHp: 1,
+      fireCooldown: 2.5,
+      spiralAngle: 0,
+      phase: 0,     // 0 = dormant
+    };
+
+    // Floating "???" label — hints at mystery
+    this.worldBossDormantLabel = this.add.text(spawnX, spawnY - 30, '? ? ?', {
+      fontFamily: 'monospace', fontSize: '11px', color: '#550022',
+      stroke: '#000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(50);
+
+    this.tweens.add({
+      targets: this.worldBossDormantLabel,
+      alpha: 0.2,
+      duration: 1800,
+      yoyo: true,
+      repeat: -1,
+    });
+  }
+
+  /**
+   * Called after all 4 dungeons are cleared.
+   * Fenrir fully awakens: player gets massive stat boost, HP set to real values,
+   * label changes to his name, damage becomes real.
+   */
+  spawnWorldBoss(): void {
+    if (this.worldBossSpawned || !this.worldBoss) return;
+    this.worldBossSpawned = true;
+    this.worldBossAwake = true;
+
+    // Dramatic visual transformation
+    this.worldBoss.setTint(0x880022);
+    this.worldBoss.setAlpha(1.0);
+    this.worldBoss.setScale(4.5);
+
+    // Remove dormant label
+    if (this.worldBossDormantLabel) {
+      this.worldBossDormantLabel.destroy();
+      this.worldBossDormantLabel = null;
+    }
+
+    // Big level-10 stat boost — the player is now worthy
+    const pc = this.playerController;
+    const boost = 1.8;
+    pc.maxHp  = Math.floor(pc.maxHp  * boost);
+    pc.hp     = pc.maxHp;
+    pc.maxMp  = Math.floor(pc.maxMp  * boost);
+    pc.mp     = pc.maxMp;
+    pc.attack    = Math.floor(pc.attack    * boost);
+    pc.defense   = Math.floor(pc.defense   * boost);
+    pc.speed     = Math.floor(pc.speed     * 1.3);
+    pc.dexterity = Math.floor(pc.dexterity * 1.5);
+    pc.grantInvincibility(3.0);
+
+    // Awaken Fenrir's real HP
+    const bossHp = 8000;
+    this.worldBossData = {
+      hp: bossHp,
+      maxHp: bossHp,
+      fireCooldown: 0,
+      spiralAngle: 0,
+      phase: 1,
+    };
+
+    // Boss health bar (screen-space)
+    this.worldBossHealthBar = this.add.graphics().setDepth(200).setScrollFactor(0);
+    this.worldBossNameText = this.add.text(400, 12, 'FENRIR  —  THE WORLD ENDER', {
+      fontFamily: 'monospace', fontSize: '13px', color: '#ff4444',
+      stroke: '#000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(201).setScrollFactor(0);
+
+    // Wire projectiles to damage Fenrir now that he's awake
+    this.physics.add.overlap(
+      this.projectileManager.playerProjectiles,
+      this.worldBoss,
+      (projObj: any) => {
+        if (!this.worldBossAwake) return;
+        const proj = projObj as Phaser.Physics.Arcade.Sprite;
+        if (!proj.active) return;
+        this.projectileManager.deactivateProjectile(proj, true);
+        const dmg = Math.floor(pc.getAttackDamage() * (proj.getData('damageMultiplier') ?? 1));
+        if (this.worldBossData) {
+          this.worldBossData.hp -= dmg;
+          this.worldBoss!.setTint(0xffffff);
+          this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
+          this.showDamageNumber(this.worldBoss!.x, this.worldBoss!.y - 24, dmg);
+          if (this.worldBossData.hp <= 0) this.onWorldBossDefeated();
+        }
+      },
+      undefined, this,
+    );
+
+    this.events.emit('notification', '⚠  FENRIR AWAKENS!', '#ff2222');
+    this.events.emit('notification', 'Power surges through you. Fight him!', '#ffdd44');
+  }
+
+  private updateWorldBoss(dt: number): void {
+    if (!this.worldBoss || !this.worldBossData) return;
+    const bd = this.worldBossData;
+
+    // ---- DORMANT phase (0) — constrained idle at world center, instant-kill on touch ----
+    if (bd.phase === 0) {
+      bd.spiralAngle += dt * 0.3;
+
+      // Orbit slowly within 80px of home — never leaves the dark inner circle
+      const orbitRadius = 60;
+      const targetX = this.worldBossHomeX + Math.cos(bd.spiralAngle) * orbitRadius;
+      const targetY = this.worldBossHomeY + Math.sin(bd.spiralAngle) * orbitRadius;
+      const toTargetX = targetX - this.worldBoss.x;
+      const toTargetY = targetY - this.worldBoss.y;
+      const toTargetDist = Math.sqrt(toTargetX * toTargetX + toTargetY * toTargetY);
+      if (toTargetDist > 2) {
+        const speed = Math.min(toTargetDist * 2, 25);
+        this.worldBoss.setVelocity(
+          (toTargetX / toTargetDist) * speed,
+          (toTargetY / toTargetDist) * speed,
+        );
+      } else {
+        this.worldBoss.setVelocity(0, 0);
+      }
+
+      const dormantDist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
+
+      // Instant-kill on contact — dormant Fenrir is a death sentence
+      if (dormantDist < 32 && !this.playerController.isInvincible && !this.playerController.isDead) {
+        this.playerController.takeDamage(this.playerController.maxHp * 20);
+      }
+
+      // Slow warning radial — 4 shots every 3s, low speed, mostly decorative
+      bd.fireCooldown -= dt;
+      if (bd.fireCooldown <= 0) {
+        bd.fireCooldown = 3.0;
+        for (let i = 0; i < 4; i++) {
+          const a = (Math.PI * 2 / 4) * i + bd.spiralAngle;
+          this.projectileManager.fireEnemyProjectile(
+            this.worldBoss.x, this.worldBoss.y, a, 70, 9999, 4000,
+          );
+        }
+      }
+
+      // Update floating label position
+      if (this.worldBossDormantLabel) {
+        this.worldBossDormantLabel.setPosition(this.worldBoss.x, this.worldBoss.y - 34);
+      }
+      return;
+    }
+
+    // ---- AWAKE phases (1-3) ----
+    const hpRatio = bd.hp / bd.maxHp;
+
+    // Phase transitions
+    if (hpRatio < 0.5 && bd.phase === 1) {
+      bd.phase = 2;
+      this.events.emit('notification', 'FENRIR ENRAGES!', '#ff4444');
+    }
+    if (hpRatio < 0.2 && bd.phase === 2) {
+      bd.phase = 3;
+      this.events.emit('notification', 'FENRIR GOES BERSERK!', '#ff0000');
+    }
+
+    // Chase player
+    const speed = 55 + bd.phase * 20;
+    const angle = angleBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
+    const dist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
+    if (dist > 80) {
+      this.worldBoss.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
+    } else {
+      this.worldBoss.setVelocity(0, 0);
+    }
+
+    // Contact = instant kill even while awake (you must dodge)
+    if (dist < 32 && !this.playerController.isInvincible && !this.playerController.isDead) {
+      this.playerController.takeDamage(this.playerController.maxHp * 10);
+    }
+
+    // Bullet patterns — escalating
+    bd.fireCooldown -= dt;
+    bd.spiralAngle += dt * (1.5 + bd.phase * 0.5);
+
+    if (bd.fireCooldown <= 0) {
+      bd.fireCooldown = Math.max(0.18, 0.6 - bd.phase * 0.12);
+
+      if (bd.phase === 1) {
+        for (let i = 0; i < 12; i++) {
+          const a = (Math.PI * 2 / 12) * i + bd.spiralAngle;
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 160, 9999, 3000);
+        }
+      } else if (bd.phase === 2) {
+        for (let i = 0; i < 8; i++) {
+          const a1 = (Math.PI * 2 / 8) * i + bd.spiralAngle;
+          const a2 = a1 + Math.PI / 8;
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a1, 190, 9999, 3000);
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a2, 140, 9999, 3000);
+        }
+      } else {
+        for (let i = 0; i < 16; i++) {
+          const a = (Math.PI * 2 / 16) * i + bd.spiralAngle;
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 220, 9999, 3500);
+        }
+        this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, angle, 260, 9999, 3000);
+      }
+    }
+
+    // Health bar
+    if (this.worldBossHealthBar) {
+      this.worldBossHealthBar.clear();
+      const barW = 260, barH = 12;
+      const bx = 400 - barW / 2, by = 24;
+      this.worldBossHealthBar.fillStyle(0x220000, 0.9);
+      this.worldBossHealthBar.fillRect(bx, by, barW, barH);
+      const col = hpRatio > 0.5 ? 0xcc0000 : hpRatio > 0.2 ? 0xff4400 : 0xff0000;
+      this.worldBossHealthBar.fillStyle(col, 1);
+      this.worldBossHealthBar.fillRect(bx, by, barW * Math.max(0, hpRatio), barH);
+      this.worldBossHealthBar.lineStyle(1, 0x880000);
+      this.worldBossHealthBar.strokeRect(bx, by, barW, barH);
+    }
+  }
+
+  private onWorldBossDefeated(): void {
+    this.worldBossAwake = false;
+    if (this.worldBossHealthBar) { this.worldBossHealthBar.destroy(); this.worldBossHealthBar = null; }
+    if (this.worldBossNameText) { this.worldBossNameText.destroy(); this.worldBossNameText = null; }
+    this.worldBoss?.destroy();
+    this.worldBoss = null;
+    this.worldBossData = null;
+
+    // Save the final checkpoint — Fenrir defeated
+    this.progressManager.unlockStage(this.classId, 4);
+
+    this.events.emit('notification', '⚡  FENRIR HAS FALLEN!', '#ffdd44');
+    this.events.emit('notification', 'YOU ARE THE CHAMPION OF MIDGARD!', '#ffaa00');
+
+    // Victory heal — restore full HP on boss kill
+    this.playerController.hp = this.playerController.maxHp;
+    this.playerController.mp = this.playerController.maxMp;
+    this.showInstantHealEffect(this.player.x, this.player.y - 20, this.playerController.maxHp);
+
+    // Transition to ending after dramatic pause
+    this.time.delayedCall(4500, () => {
+      this.cameras.main.fadeOut(1500, 0, 0, 0);
+    });
+    this.time.delayedCall(6000, () => {
+      this.scene.stop('UIScene');
+      this.scene.stop('GameScene');
+      this.scene.start('EndingScene');
+    });
   }
 }

@@ -23,9 +23,7 @@ Open `http://localhost:5173` in your browser.
 | **WASD** | Move (8-directional) |
 | **Mouse** | Aim |
 | **Left Click** | Shoot |
-| **Space** | Use ability (3 progressive abilities per class) |
-| **I** | Toggle Inventory |
-| **J** | Toggle Quest Journal |
+| **Space** | Use special ability |
 | **M** | Toggle World Map overlay |
 | **R** | Return to Asgard (safe hub) |
 | **E** | Interact with NPCs (in Asgard) |
@@ -41,38 +39,39 @@ yggdrasil/
     src/
       scenes/      # Boot, Preload, Lore, CharacterSelect, Game, Dungeon, Nexus, Death, UI
       systems/     # PlayerController, EnemyManager, ProjectileManager, AbilitySystem,
-                   # InventoryManager, QuestManager, LootManager, FameManager, CameraController
-      data/        # ItemDatabase, QuestDatabase, DungeonDatabase, ClassDatabase
+                   # LootManager, FameManager, CameraController, MusicManager, ProgressManager
+      data/        # ItemDatabase, DungeonDatabase, ClassDatabase
       utils/       # SpriteGenerator, ObjectPool, MathUtils
-  server/          # Content API server (placeholder for Phase 4)
+  server/          # Content API server (placeholder)
 ```
 
-## What's Built (Phases 1-6)
+## What's Built
 
 ### Opening Lore Crawl
 - Norse mythology intro with scrolling text (Star Wars-style crawl)
 - Sets the stage: Ragnarok approaches, Odin calls mortal heroes
 - Skippable after 1.5 seconds by pressing any key or clicking
 - Smooth fade transition to character select
+- Overworld music begins on the lore screen
 
 ### Core Game Loop
-- Procedurally generated 256x256 tile world using Perlin noise
-- 4 concentric biome zones: Frozen Shores, Birch Forest, Volcanic Wastes, Niflheim Depths
+- Procedurally generated 256×256 tile world using Perlin noise
+- 4 concentric biome zones: Frozen Shores → Birch Forest → Volcanic Wastes → Niflheim Depths
 - Difficulty scales as you move toward the center of the world
 - WASD movement with mouse-aim shooting
-- Pixel-perfect camera follow with 2x zoom
+- Pixel-perfect camera follow with 2× zoom
 - Circular minimap with biome rings, enemy dots, portal markers
 
-### 6 Starter Classes with Unique Combat Profiles
+### 6 Classes with Unique Combat Profiles
 
 Each class has a completely different combat feel via unique weapon profiles:
 
 | Class | Weapon | Armor | Combat Style |
 |---|---|---|---|
-| **Viking** | Sword / Heavy | 5 projectiles, 90 degree arc, short range | Melee tank burst |
+| **Viking** | Sword / Heavy | 5 projectiles, 90° arc, short range | Melee tank burst |
 | **Runemaster** | Staff / Robe | 2 projectiles, tight spread, long range | Sniper mage |
-| **Valkyrie** | Spear / Medium | 3 projectiles, 15 degree cone, mid range | Balanced hybrid |
-| **Berserker** | Axe / Light | 3 projectiles, 45 degree arc, fast fire | Glass cannon |
+| **Valkyrie** | Spear / Medium | 3 projectiles, 15° cone, mid range | Balanced hybrid |
+| **Berserker** | Axe / Light | 3 projectiles, 45° arc, fast fire | Glass cannon |
 | **Skald** | Wand / Robe | 1 projectile, very long range, slow | Support caster |
 | **Huntsman** | Bow / Light | 1 projectile, fastest fire rate, long range | Rapid archer |
 
@@ -81,16 +80,16 @@ Each class has a completely different combat feel via unique weapon profiles:
 - Character select screen with full stat previews and lore
 
 ### Ability System (Space Bar)
-- **3 progressive abilities per class** unlocking at levels 1, 5, and 10
-- Each ability has cooldown and MP cost
-- Ability types include:
-  - **Healing** (Valkyrie, Skald) — restore HP with visual effects
-  - **Buffs** (Viking defense, Berserker attack/speed, Skald group buffs)
-  - **AoE damage** (Viking Thunderclap, Runemaster Arcane Nova)
-  - **Projectile bursts** (Runemaster Rune Barrage, Huntsman Arrow Volley)
-  - **Invincibility** (Valkyrie Wings of Valhalla at high tier)
-- Visual cooldown display in HUD with ability names, MP costs, and timers
-- Locked abilities show lock icon until level requirement met
+- **1 signature ability per class**, always available from level 1
+- Each ability has its own cooldown, MP cost, and visual color (shown in the HUD)
+- Ability types:
+  - **Healing** (Valkyrie Divine Touch, Skald Healing Chant)
+  - **Defense buffs** (Viking Shield Wall, Runemaster Arcane Shield)
+  - **Attack speed** (Berserker Frenzy)
+  - **AoE damage** (Viking Battle Cry / Odin's Fury)
+  - **Projectile bursts** (Runemaster Rune Blast, Huntsman Arrow Volley)
+- HUD widget at bottom-center: shows ability name, class color, cooldown sweep, READY state
+- Ability is shown prominently on the Character Select detail panel
 
 ### Combat
 - Object-pooled projectile system (200 player, 500 enemy)
@@ -100,130 +99,126 @@ Each class has a completely different combat feel via unique weapon profiles:
 - Floating damage numbers
 - Invincibility frames after hit
 - Class tint preserved through damage flashes
+- Projectiles stop on wall collision in dungeons
+
+### Instant Heal Drops (no inventory)
+- 50% chance of an instant heal (+8% max HP) on every enemy kill
+- Green sparkle effect + floating `+HP` text at kill site
+- Boss kill fully restores HP and MP
+- No loot bags, no inventory panel — streamlined for fast action gameplay
 
 ### Enemies
-- Chunk-based spawning within render distance
+- Chunk-based spawning in overworld within render distance
 - AI state machine: wander when idle, chase and attack on aggro
-- Stats scale with biome difficulty (level 1-20)
-- Health bars on damaged enemies
-- Despawn when out of range
+- Stats scale with biome difficulty (level 1–20)
+- Health bars shown on damaged enemies
+- Despawn when out of range (overworld)
 
-### Dungeons (Nine Realms)
-- 4 dungeons: Frostheim Caverns, Verdant Hollows, Muspelheim Forge, Helheim Sanctum
-- BSP-style procedural room generation (linear connected rooms)
-- Multi-phase boss fights with Norse dialogue and escalating patterns
-- Boss-specific loot tables with rare drops
-- Boss health bar UI overlay
-- Room clearing mechanics with enemy spawning
-- Dungeon portals drop from enemy kills (biome-based chance)
-- Exit portal spawns on boss defeat
+### Dungeons (Four Realms)
+- 4 dungeons unlocking at levels 5, 6, 8, 10:
+  - **Frostheim Caverns** (difficulty 1)
+  - **Verdant Hollows** (difficulty 3)
+  - **Muspelheim Forge** (difficulty 5)
+  - **Helheim Sanctum** (difficulty 8)
+- Procedural snake-path room generation with varying room sizes
+- 3–5 enemies per room; idle until player enters, then chase until dead
+- Projectiles stop on dungeon walls (no shooting through walls)
+- Multi-phase boss fights with Norse dialogue and escalating bullet patterns
+- Boss health bar appears when player approaches boss room
+- Full HP/MP restore on boss kill
+- Exit portal spawns on boss defeat — walk into it to return to Midgard
+- Camera tight-follow in dungeons (no aim offset)
+- Dungeon portals appear next to player when reaching the unlock level
 
 ### Asgard Hub (Nexus)
 - Safe zone with no enemies or damage
 - Handcrafted golden-tile map with rooms
 - Vault Keeper NPC: store items that survive death (localStorage)
-- Shop Keeper NPC: buy basic gear with gold
+- Shop Keeper NPC: buy basic gear
 - Bifrost Portal: enter Midgard overworld
-- Full player state preserved between hub and overworld (HP, MP, XP, gold, class)
 - R key to return from overworld at any time
 
-### Progression
-- XP and leveling (1-20) with class-specific stat gains per level
-- Full heal on level up with visual effect
-- HP and MP regeneration (scales with Vitality and Wisdom)
-- Permadeath: death is permanent, character is lost
+### Progression & Persistence
+- XP and leveling (1–20) with class-specific stat gains per level
+- Run progress **persists across browser refresh** (level, XP, HP, MP, spawned portals saved to localStorage)
+- Dungeon completion checkpoints saved per class — fast-travel to cleared stages on future runs
+- **Stage Select overlay** on character select (Mario World style):
+  - `► Continue (Lv.N)` — resume your exact saved run
+  - `Midgard (Fresh Start)` — start from level 1
+  - Unlocked checkpoints (e.g. "Frostheim Cleared") for fast travel
+- Permadeath: death wipes the run state, character is lost
 - Fame system: earn fame based on level, kills, dungeons, biomes explored
-- Graveyard: view history of fallen characters with fame breakdown
-- Vault items survive death
+- Dormant Fenrir at world center — awakens after all 4 dungeons cleared (final boss)
 
-### Inventory & Equipment (RotMG-style)
-- 4 equipment slots: Weapon, Ability, Armor, Ring
-- 8 inventory bag slots with item stacking
-- Class-specific starting gear (proper weapon/armor types per class)
-- 40+ items: swords, staves, bows, axes, spears, wands, heavy/medium/light/robe armor, rings, abilities, consumables, 8 rune stones
-- Inventory panel shows item names, slot numbers, and usage hints
-- "Walk over loot bags to pick up items" instruction in inventory
+### Audio
+- 3 music tracks generated with ElevenLabs (Viking/RuneScape style):
+  - Overworld: lute + flute melody, steady drum, Scandinavian folk
+  - Dungeon: deep droning strings, ominous bass, stone cavern feel
+  - Boss: war drums, Norse horns, tribal Viking percussion
+- Music fades between scenes; boss track triggers when approaching boss room
+- 6 SFX: ability use, enemy hit, player hit, heal, level up, portal enter
+- Overworld music starts on lore screen and continues through character select
 
-### Loot System
-- Colored loot bags by rarity (Brown, Purple, Cyan, White, Orange)
-- Loot tables per difficulty tier (low, mid, high, godlands)
-- Boss-specific loot tables with guaranteed rare drops
-- Bags despawn after 30 seconds
-- Auto-pickup on walk-over
-
-### Quests
-- 3 main story quests with Norse narrative (Grima the Seeress questline)
-- 5 side quests from various NPCs
-- Objective types: kill, collect, reach level, reach biome, equip item
-- Auto-tracking with quest completion rewards (XP, gold, items)
-
-### World Map (M key)
-- Full-screen overlay showing the concentric biome rings of Midgard
-- Player position marker (white dot with pulsing glow)
-- Enemy positions shown as red dots
-- Dungeon portal markers
-- Compass directions (N, S, E, W)
-- Biome labels on each ring
-- Color-coded legend
-
-### UI (Stardew Valley aesthetic)
+### UI
 - Warm earth-tone palette: wooden panel borders, parchment interiors
-- HP/MP/XP bars in top-left panel with increased readability
-- Equipment hotbar (bottom center)
-- Ability cooldown display (3 slots above hotbar) with names, MP costs, cooldown timers
-- Quest tracker (top right, always visible)
-- Full inventory panel (I key) with equipment, bag grid, item names, and slot numbers
-- Quest journal (J key) with objectives and rewards
-- World map overlay (M key) with biome visualization
-- Notification toasts with semi-transparent backgrounds and extended duration
-- All text uses stroke outlines for readability on any background
-- Circular minimap with biome rings and portal markers
-- Death screen with fame breakdown and graveyard
-- Character select screen with class previews and stat bars
-- Controls hint in top-left corner
+- HP / MP / XP bars in top-left panel
+- Ability widget at bottom-center: class-colored border when ready, grey sweep on cooldown
+- World map overlay (M key) with biome visualization and portal markers
+- Notification toasts with color-coded messages
+- Death screen with permadeath countdown
+- Character select with class previews, stat bars, and ability info panel
+
+## Dungeon Progression Flow
+
+```
+Level 1  → Midgard overworld (kill enemies, gain XP)
+Level 5  → Frostheim Caverns portal appears
+Level 6  → Verdant Hollows portal appears (after Frostheim)
+Level 8  → Muspelheim Forge portal appears
+Level 10 → Helheim Sanctum portal appears
+All done → FENRIR awakens at world center (final fight)
+Win      → Victory ending screen
+```
 
 ## Norse Mythology Mapping
 
 | Game Concept | Norse Equivalent |
 |---|---|
 | Safe Hub | Asgard (Nexus) |
-| Overworld | Midgard (256x256 procedural realm) |
+| Overworld | Midgard (procedural realm) |
 | Starter zone | Frozen Shores |
 | Mid zone | Birch Forest |
 | Hard zone | Volcanic Wastes / Muspelheim Border |
 | Core zone | Niflheim Depths |
 | Dungeons | Frostheim, Verdant Hollows, Muspelheim Forge, Helheim |
-| Stat potions | Rune Stones (8 types, named after Elder Futhark runes) |
-| HP potion | Mead Flask |
-| MP potion | Seidr Tonic |
+| Final Boss | Fenrir, The World Ender |
 | Fame | Earned on death, permanent progress |
 | Vault | Death-safe item storage in Asgard |
 
-## Game Flow
-
-1. **Lore Crawl** -> Norse mythology intro (skip with any key)
-2. **Character Select** -> Choose from 6 classes with unique combat styles
-3. **Midgard Overworld** -> Kill enemies, gain XP, find loot, unlock abilities
-4. **Dungeon Portals** -> Drop from killed enemies, walk in to enter
-5. **Dungeon** -> Fight through rooms, defeat multi-phase boss, get rare loot
-6. **Asgard Hub** -> Press R to return, visit vault/shop NPCs
-7. **Death** -> Permadeath! Earn fame, start a new character
-8. **Repeat** -> New class, chase rare loot, fill graveyard
-
 ## Tech Stack
 
-- **Phaser 3** (v3.87) - 2D game framework with Arcade physics
-- **TypeScript** - Strict mode, shared types across packages
-- **Vite** - Fast dev server and build tool
-- **npm workspaces** - Monorepo for client/server/shared
-- **localStorage** - Vault and fame persistence
+- **Phaser 3** (v3.87) — 2D game framework with Arcade physics
+- **TypeScript** — Strict mode, shared types across packages
+- **Vite** — Fast dev server and build tool
+- **npm workspaces** — Monorepo (client / shared)
+- **ElevenLabs API** — Procedurally generated music and SFX
+- **localStorage** — Run state, checkpoints, vault, and fame persistence
 
-## Roadmap
+## Known Working Features (as of latest build)
 
-- **Phase 4**: AI content generation pipeline (Fastify + Redis + Claude API)
-- **Phase 7**: Polish, audio, particles, screen shake, tooltips
-- **Phase 8**: Multiplayer via WebSockets
+- ✅ Lore scroll → Character Select → Game loop
+- ✅ All 6 classes with unique weapons and abilities
+- ✅ Stage Select with Continue / Fresh Start / Checkpoint options
+- ✅ Progress persists across browser refresh
+- ✅ 4 dungeons with level-gated portals
+- ✅ Projectiles blocked by dungeon walls
+- ✅ Boss health bar (lazy-loads when player approaches)
+- ✅ Boss music triggers on approach, not on dungeon entry
+- ✅ Full heal on boss kill, no loot bags
+- ✅ Exit portal returns to Midgard cleanly (no freeze, no black screen)
+- ✅ Viking/RuneScape-style music in all contexts
+- ✅ Ability widget shows correct class color (dark when cooling, colored when ready)
 
 ## License
 
-Private - Space City Studios
+Private — Space City Studios

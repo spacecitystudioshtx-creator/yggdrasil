@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { MusicManager } from '../systems/MusicManager';
 
 /**
  * LoreScene: Opening story crawl that sets up the Norse mythology setting.
@@ -11,12 +12,17 @@ export class LoreScene extends Phaser.Scene {
   private loreContainer!: Phaser.GameObjects.Container;
   private skipText!: Phaser.GameObjects.Text;
   private canSkip = false;
+  private musicManager!: MusicManager;
 
   constructor() {
     super({ key: 'LoreScene' });
   }
 
   create(): void {
+    // Start overworld music during lore/intro
+    this.musicManager = new MusicManager(this);
+    this.musicManager.playMusic('music_overworld');
+
     const cx = this.cameras.main.width / 2;
     const cy = this.cameras.main.height / 2;
 

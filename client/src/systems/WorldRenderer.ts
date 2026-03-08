@@ -67,6 +67,13 @@ export class WorldRenderer {
         const dy = y - centerY;
         const dist = Math.sqrt(dx * dx + dy * dy) / maxDist;
 
+        // Outermost 5 tiles on every edge = solid ice wall (the "flat earth" barrier)
+        const edgeDist = Math.min(x, y, width - 1 - x, height - 1 - y);
+        if (edgeDist < 5) {
+          groundData[y][x] = TILES.FROZEN_WALL;
+          continue;
+        }
+
         // Noise for terrain variation
         const noiseVal = noise.noise2D(x * 0.04, y * 0.04);
         const noiseDetail = noise.noise2D(x * 0.12, y * 0.12) * 0.3;
