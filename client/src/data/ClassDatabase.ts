@@ -97,22 +97,22 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
     weaponType: WeaponType.Sword,
     armorType: ArmorType.Heavy,
     baseStats: {
-      maxHp: 250, maxMp: 100,
-      attack: 15, defense: 10,
+      maxHp: 320, maxMp: 100,
+      attack: 14, defense: 10,
       speed: 20, dexterity: 20,
-      vitality: 30, wisdom: 15,
+      vitality: 35, wisdom: 15,
     },
     levelGains: {
-      maxHp: 25, maxMp: 5,
-      attack: 1, defense: 1,
+      maxHp: 30, maxMp: 5,
+      attack: 1, defense: 2,
       speed: 1, dexterity: 1,
-      vitality: 2, wisdom: 1,
+      vitality: 3, wisdom: 1,
     },
     statCaps: {
-      maxHp: 750, maxMp: 252,
-      attack: 55, defense: 40,
+      maxHp: 900, maxMp: 252,
+      attack: 55, defense: 55,
       speed: 50, dexterity: 50,
-      vitality: 75, wisdom: 50,
+      vitality: 90, wisdom: 50,
     },
     startingGear: {
       weapon: 'sword_t0',
@@ -132,8 +132,8 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       projectileSize: 1.5,
     },
     spriteTint: 0x6688bb, // steel blue
-    abilityName: 'Shield Bash',
-    abilityDescription: 'Raise your shield, absorbing damage and stunning nearby enemies.',
+    abilityName: 'Shield Wall',
+    abilityDescription: 'Raise your shield to halve all incoming damage for 5 seconds.',
   },
 
   runemaster: {
@@ -167,20 +167,20 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       armor: 'armor_robe_t0',
       ring: 'ring_t0',
     },
-    // Runemaster: 2 slow, long-range, high-damage bolts
+    // Runemaster: 1 slow, long-range, very high-damage arcane bolt (mana-gated, no timer)
     weaponProfile: {
-      projectileCount: 2,
-      spreadAngle: 8,
+      projectileCount: 1,
+      spreadAngle: 0,
       projectileSpeed: 350,
       projectileLifetime: 1800,
       projectileTint: 0xaa44ff,
-      fireRateMultiplier: 0.8,
-      damageMultiplier: 1.4,
-      projectileSize: 1.3,
+      fireRateMultiplier: 0.7,
+      damageMultiplier: 2.2,
+      projectileSize: 1.5,
     },
     spriteTint: 0xaa44ff, // purple
-    abilityName: 'Rune Spell',
-    abilityDescription: 'Inscribe a rune in the air, releasing a blast of arcane energy.',
+    abilityName: 'Rune Blast',
+    abilityDescription: 'Erupt 12 arcane bolts in a full ring around you. Costs mana.',
   },
 
   valkyrie: {
@@ -226,8 +226,8 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       projectileSize: 1.2,
     },
     spriteTint: 0xffdd44, // gold
-    abilityName: 'Wings of Valhalla',
-    abilityDescription: 'Sprout ethereal wings, gaining a burst of speed and healing nearby allies.',
+    abilityName: 'Divine Touch',
+    abilityDescription: 'Call upon divine grace to instantly restore 80 HP.',
   },
 
   berserker: {
@@ -238,14 +238,14 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
     weaponType: WeaponType.Axe,
     armorType: ArmorType.Light,
     baseStats: {
-      maxHp: 180, maxMp: 80,
-      attack: 30, defense: 3,
+      maxHp: 190, maxMp: 80,
+      attack: 38, defense: 2,
       speed: 25, dexterity: 30,
       vitality: 20, wisdom: 10,
     },
     levelGains: {
       maxHp: 18, maxMp: 3,
-      attack: 2, defense: 0,
+      attack: 3, defense: 0,
       speed: 1, dexterity: 2,
       vitality: 1, wisdom: 0,
     },
@@ -269,12 +269,12 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       projectileLifetime: 500,
       projectileTint: 0xcc3333,
       fireRateMultiplier: 1.5,
-      damageMultiplier: 0.8,
+      damageMultiplier: 1.4,
       projectileSize: 1.4,
     },
     spriteTint: 0xcc3333, // red
-    abilityName: 'Berserker Rage',
-    abilityDescription: 'Enter a blood-fury, doubling attack speed and damage for a short time.',
+    abilityName: 'Frenzy',
+    abilityDescription: 'Enter a blood-rage, boosting fire rate by 50% for 5 seconds.',
   },
 
   skald: {
@@ -320,8 +320,8 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       projectileSize: 1.0,
     },
     spriteTint: 0x44ccaa, // teal
-    abilityName: 'War Chant',
-    abilityDescription: 'Sing a battle hymn that boosts the attack and defense of nearby allies.',
+    abilityName: 'Healing Chant',
+    abilityDescription: 'Sing a battle hymn that instantly restores 100 HP. Costs mana.',
   },
 
   huntsman: {
@@ -355,7 +355,7 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       armor: 'armor_light_t0',
       ring: 'ring_t0',
     },
-    // Huntsman: 1 fast, long-range arrow, rapid fire
+    // Huntsman: 1 fast, long-range arrow, rapid fire — no multi-bullet penalty
     weaponProfile: {
       projectileCount: 1,
       spreadAngle: 0,
@@ -363,12 +363,12 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       projectileLifetime: 1500,
       projectileTint: 0x88aa44,
       fireRateMultiplier: 1.6,
-      damageMultiplier: 0.85,
+      damageMultiplier: 1.1,
       projectileSize: 0.8,
     },
     spriteTint: 0x88aa44, // forest green
-    abilityName: 'Wolf Companion',
-    abilityDescription: 'Summon a spectral wolf that fights alongside you for a short duration.',
+    abilityName: 'Arrow Volley',
+    abilityDescription: 'Fire 8 arrows in a wide cone burst, shredding enemies ahead of you.',
   },
 };
 

@@ -3,8 +3,8 @@
 // ============================================================================
 
 // --- XP Curve ---
-// Level 1-20, RotMG style: fast early leveling, ~30 min to cap
-export const MAX_LEVEL = 20;
+// Level 1-30, RotMG style: fast early leveling, steady pace to cap
+export const MAX_LEVEL = 30;
 
 // XP required to reach level N (cumulative)
 export function xpForLevel(level: number): number {

@@ -432,7 +432,7 @@ export class CharacterSelectScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '13px', color: '#3d2410',
       stroke: '#ddc090', strokeThickness: 1,
     }).setOrigin(0.5));
-    this.stageOverlay.add(this.add.text(400, py + 34, '← → or Arrow Keys  •  ENTER to confirm', {
+    this.stageOverlay.add(this.add.text(400, py + 34, '↑ ↓ Arrow Keys  •  ENTER to confirm  •  ESC to cancel', {
       fontFamily: 'monospace', fontSize: '8px', color: '#8b6b3d',
     }).setOrigin(0.5));
 
@@ -541,9 +541,20 @@ export class CharacterSelectScene extends Phaser.Scene {
     this.stageKeys.forEach(k => k.destroy());
     this.stageKeys = [];
 
-    // stageIndex 99 = "Continue" sentinel — restoreRunState in GameScene handles exact level
-    const isContinue = checkpoint.stageIndex === 99;
-    this.launchGame(cls.id, isContinue ? 0 : checkpoint.stageIndex);
+    const pm = new ProgressManager();
+
+    if (checkpoint.stageIndex === 99) {
+      // "Continue" sentinel — restoreRunState in GameScene handles exact level
+      this.launchGame(cls.id, 0);
+    } else if (checkpoint.stageIndex === 0) {
+      // "Midgard (Fresh Start)" — wipe saved run so restoreRunState doesn't restore it
+      pm.clearRunState();
+      this.launchGame(cls.id, 0);
+    } else {
+      // Named checkpoint (Frostheim Cleared, etc.) — wipe run state, start at checkpoint
+      pm.clearRunState();
+      this.launchGame(cls.id, checkpoint.stageIndex);
+    }
   }
 
   private launchGame(classId: string, startStage: number): void {

@@ -227,11 +227,17 @@ export class AbilitySystem {
     }
   }
 
+  /** Mana/magic classes have no cooldown — ability is purely mana-gated */
+  private get isManaGated(): boolean {
+    return this.classId === 'runemaster' || this.classId === 'skald';
+  }
+
   /** Use the class ability (always ability1, always unlocked). */
   useAbility(mouseWorldX: number, mouseWorldY: number): boolean {
     const ability = this.abilities.ability1;
 
-    if (this.cooldowns[0] > 0) {
+    // Non-mana classes check cooldown; mana/magic classes skip it (purely mana-gated)
+    if (!this.isManaGated && this.cooldowns[0] > 0) {
       // Cooldown is visible in the ability widget — no notification spam needed
       return false;
     }
@@ -241,7 +247,8 @@ export class AbilitySystem {
     }
 
     this.playerController.mp -= ability.mpCost;
-    this.cooldowns[0] = ability.cooldown;
+    // Mana-gated classes have no cooldown timer
+    this.cooldowns[0] = this.isManaGated ? 0 : ability.cooldown;
     this.executeAbility(ability, mouseWorldX, mouseWorldY);
     this.scene.events.emit('notification', ability.name, ability.color);
     return true;

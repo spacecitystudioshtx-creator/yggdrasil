@@ -38,6 +38,9 @@ export interface DungeonDef {
   wallColor: string;
   accentColor: string;
   enemyTextures: string[];
+  enemyTint: number;          // hex tint applied to dungeon enemies
+  bossTint: number;           // hex tint applied to boss sprite
+  musicKey: string;           // audio cache key for dungeon ambient track
   portalDropChance: number;    // 0-1 chance of portal from biome enemy kill
   boss: DungeonBossDef;
   lootTable: string;           // key into LOOT_TABLES
@@ -116,7 +119,7 @@ const BOSS_PATTERNS: Record<string, ProjectilePattern> = {
     type: BulletPatternType.Shotgun,
     projectileCount: 7,
     projectileSpeed: 160,
-    projectileDamage: 14,
+    projectileDamage: 28,
     projectileLifetime: 2.5,
     projectileSize: 3,
     spreadAngle: 60,
@@ -136,7 +139,7 @@ const BOSS_PATTERNS: Record<string, ProjectilePattern> = {
     type: BulletPatternType.Wall,
     projectileCount: 15,
     projectileSpeed: 100,
-    projectileDamage: 10,
+    projectileDamage: 22,
     projectileLifetime: 4,
     projectileSize: 3,
     spreadAngle: 180,
@@ -156,7 +159,7 @@ const BOSS_PATTERNS: Record<string, ProjectilePattern> = {
     type: BulletPatternType.Star,
     projectileCount: 5,
     projectileSpeed: 120,
-    projectileDamage: 18,
+    projectileDamage: 35,
     projectileLifetime: 3,
     projectileSize: 3,
     spreadAngle: 72,
@@ -318,6 +321,9 @@ export const DUNGEON_DEFS: Record<string, DungeonDef> = {
     wallColor: '#6a8fa3',
     accentColor: '#9ab8c9',
     enemyTextures: ['enemy_small'],
+    enemyTint: 0x88ccff,   // ice blue
+    bossTint: 0x44aaff,    // deep frost blue
+    musicKey: 'music_dungeon_frost',
     portalDropChance: 0.06,
     lootTable: 'mid',
     boss: {
@@ -386,6 +392,9 @@ export const DUNGEON_DEFS: Record<string, DungeonDef> = {
     wallColor: '#3d5228',
     accentColor: '#5c7a3e',
     enemyTextures: ['enemy_small', 'enemy_medium'],
+    enemyTint: 0x44cc44,   // poison green
+    bossTint: 0x22aa22,    // deep venom green
+    musicKey: 'music_dungeon_verdant',
     portalDropChance: 0.05,
     lootTable: 'mid',
     boss: {
@@ -454,6 +463,9 @@ export const DUNGEON_DEFS: Record<string, DungeonDef> = {
     wallColor: '#8b2500',
     accentColor: '#8b4513',
     enemyTextures: ['enemy_medium'],
+    enemyTint: 0xff6622,   // fire orange
+    bossTint: 0xff2200,    // deep crimson flame
+    musicKey: 'music_dungeon_muspelheim',
     portalDropChance: 0.04,
     lootTable: 'high',
     boss: {
@@ -523,6 +535,9 @@ export const DUNGEON_DEFS: Record<string, DungeonDef> = {
     wallColor: '#0d0d15',
     accentColor: '#3d1f5c',
     enemyTextures: ['enemy_medium'],
+    enemyTint: 0x9933cc,   // death purple
+    bossTint: 0x6600aa,    // void purple
+    musicKey: 'music_dungeon_helheim',
     portalDropChance: 0.03,
     lootTable: 'godlands',
     boss: {

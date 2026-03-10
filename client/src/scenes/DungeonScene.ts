@@ -294,9 +294,11 @@ export class DungeonScene extends Phaser.Scene {
       this.scene.launch('UIScene');
     }
 
-    // 19. Music — start dungeon track
+    // 19. Music — start dungeon-specific ambient track (falls back to generic if not loaded)
     this.musicManager = new MusicManager(this);
-    this.musicManager.playMusic('music_dungeon');
+    const dungeonMusicKey = def.musicKey ?? 'music_dungeon';
+    const hasSpecificTrack = this.cache.audio.has(dungeonMusicKey);
+    this.musicManager.playMusic(hasSpecificTrack ? dungeonMusicKey : 'music_dungeon');
   }
 
   update(time: number, delta: number): void {
@@ -365,7 +367,7 @@ export class DungeonScene extends Phaser.Scene {
       }
     }
 
-    // Emit player state for UI
+    // Emit player state for UI (include abilities so the ability widget updates color/cooldown)
     this.events.emit('playerUpdate', {
       hp: this.playerController.hp,
       maxHp: this.playerController.maxHp,
@@ -374,6 +376,7 @@ export class DungeonScene extends Phaser.Scene {
       level: this.playerController.level,
       xp: this.playerController.xp,
       xpToNext: this.playerController.xpToNext,
+      abilities: this.abilitySystem.getAbilityInfo(),
     });
 
     // Emit minimap data — include dungeon room shapes so UI can draw them
@@ -583,17 +586,37 @@ export class DungeonScene extends Phaser.Scene {
         const ex = (room.x + 2 + Math.random() * (room.w - 4)) * TILE_SIZE;
         const ey = (room.y + 2 + Math.random() * (room.h - 4)) * TILE_SIZE;
 
-        // Dungeon enemies: harder than overworld but fair
+        // Dungeon enemies: scale HP and damage by difficulty so each dungeon feels harder
+        // Flame dungeon (diff 8) is the reference point — kept at roughly current values
         const level = Math.min(20, def.difficulty * 3 + Math.floor(runeLevel * 0.5));
-        const hpMult = (1 + runeLevel * 0.1) * 1.4;   // reasonable health pools
-        const dmgMult = (1 + runeLevel * 0.08) * 1.2;  // meaningful but not one-shot damage
+        const hpMult  = (0.6 + def.difficulty * 0.1)  * (1 + runeLevel * 0.1);
+        // diff3=0.9x  diff5=1.1x  diff8=1.4x  diff10=1.6x
+        const dmgMult = (0.5 + def.difficulty * 0.09) * (1 + runeLevel * 0.08);
+        // diff3=0.77x  diff5=0.95x  diff8=1.22x  diff10=1.40x
 
-        // Always use medium sprite (bigger presence in room)
+        // Texture and scale vary by dungeon theme
         const textureKey = 'enemy_medium';
         const enemy = this.physics.add.sprite(ex, ey, textureKey);
         enemy.setDepth(5);
-        enemy.setScale(1.0 + Math.random() * 0.3);  // slight size variation
-        enemy.body!.setSize(14, 14);
+
+        // Per-dungeon scale ranges: frost=smaller/agile, helheim=larger/imposing
+        const minScale = 0.7 + def.difficulty * 0.04;   // frost≈0.82, helheim≈1.1
+        const maxScale = minScale + 0.35;
+        enemy.setScale(minScale + Math.random() * 0.35);
+        enemy.body!.setSize(20, 20);
+
+        // Apply dungeon theme tint to enemies
+        if (def.enemyTint) {
+          // Vary tint slightly per enemy for visual interest
+          const tintVariance = 0x111111;
+          const r = ((def.enemyTint >> 16) & 0xff) + Math.floor((Math.random() - 0.5) * 0x22);
+          const g = ((def.enemyTint >> 8)  & 0xff) + Math.floor((Math.random() - 0.5) * 0x22);
+          const b = ((def.enemyTint)        & 0xff) + Math.floor((Math.random() - 0.5) * 0x22);
+          const variedTint = (Math.max(0, Math.min(0xff, r)) << 16) |
+                             (Math.max(0, Math.min(0xff, g)) << 8)  |
+                              Math.max(0, Math.min(0xff, b));
+          enemy.setTint(variedTint);
+        }
 
         const patterns: ('aimed' | 'radial' | 'shotgun')[] = ['aimed'];
         if (def.difficulty >= 3) patterns.push('shotgun');
@@ -638,6 +661,9 @@ export class DungeonScene extends Phaser.Scene {
     this.boss.setDepth(10);
     this.boss.setScale(1.5);
     this.boss.body!.setSize(20, 20);
+    if (this.config.dungeonDef.bossTint) {
+      this.boss.setTint(this.config.dungeonDef.bossTint);
+    }
 
     const scaledHp = Math.floor(bossDef.maxHp * hpMult);
 
@@ -668,10 +694,18 @@ export class DungeonScene extends Phaser.Scene {
     const bossDef = this.bossData.def;
     const hpRatio = this.bossData.hp / this.bossData.maxHp;
 
-    // Lazy-init health bar + music when player first gets close to boss room
+    // Lazy-init health bar + music when player enters the boss room
     if (!this.bossHealthBar) {
-      const distToBoss = distanceBetween(this.player.x, this.player.y, this.boss.x, this.boss.y);
-      if (distToBoss > 400) return; // don't engage until player is nearby
+      const bossRoom = this.rooms[this.rooms.length - 1];
+      const roomLeft   = bossRoom.x * TILE_SIZE - 48;
+      const roomRight  = (bossRoom.x + bossRoom.w) * TILE_SIZE + 48;
+      const roomTop    = bossRoom.y * TILE_SIZE - 48;
+      const roomBottom = (bossRoom.y + bossRoom.h) * TILE_SIZE + 48;
+      const playerInBossRoom = (
+        this.player.x >= roomLeft && this.player.x <= roomRight &&
+        this.player.y >= roomTop  && this.player.y <= roomBottom
+      );
+      if (!playerInBossRoom) return; // boss dormant until player enters room
       this.musicManager?.playMusic('music_boss');
       this.bossHealthBar = this.add.graphics().setScrollFactor(0).setDepth(200);
       const screenCX = this.cameras.main.width / 2;
@@ -1060,10 +1094,13 @@ export class DungeonScene extends Phaser.Scene {
     if (enemy.getData('isBoss') && this.bossData) {
       this.bossData.hp -= damage;
 
-      // Flash
+      // White flash then restore boss tint
+      const bossTint = this.config.dungeonDef.bossTint;
       enemy.setTint(0xffffff);
       this.time.delayedCall(80, () => {
-        if (enemy.active) enemy.clearTint();
+        if (enemy.active) {
+          if (bossTint) enemy.setTint(bossTint); else enemy.clearTint();
+        }
       });
 
       if (this.bossData.hp <= 0) {
@@ -1081,9 +1118,13 @@ export class DungeonScene extends Phaser.Scene {
     data.hp -= damage;
     this.musicManager?.playSFX('sfx_hit_enemy');
 
+    // White flash then restore dungeon tint
+    const enemyTint = this.config.dungeonDef.enemyTint;
     enemy.setTint(0xffffff);
     this.time.delayedCall(80, () => {
-      if (enemy.active) enemy.clearTint();
+      if (enemy.active) {
+        if (enemyTint) enemy.setTint(enemyTint); else enemy.clearTint();
+      }
     });
 
     if (data.hp <= 0) {
@@ -1252,6 +1293,9 @@ export class DungeonScene extends Phaser.Scene {
       mp: this.playerController.mp,
       level: this.playerController.level,
       xp: this.playerController.xp,
+      maxHp: this.playerController.maxHp,
+      maxMp: this.playerController.maxMp,
+      xpToNext: this.playerController.xpToNext,
       dungeonComplete: this.dungeonComplete,
       completedDungeonId: this.dungeonComplete ? this.config.dungeonDef.id : undefined,
     };

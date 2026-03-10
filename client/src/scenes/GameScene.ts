@@ -77,6 +77,8 @@ export class GameScene extends Phaser.Scene {
   ];
   // Track which dungeons we have already spawned a portal for
   private spawnedDungeonPortals: Set<string> = new Set();
+  // Index into DUNGEON_PROGRESSION of the last completed dungeon (-1 = none)
+  private lastCompletedDungeonIdx: number = -1;
   // Flag set by DungeonScene return to trigger next portal spawn
   private pendingNextDungeonId: string | null = null;
 
@@ -124,9 +126,9 @@ export class GameScene extends Phaser.Scene {
     this.worldRenderer = new WorldRenderer(this);
     this.worldRenderer.generateWorld(Date.now()); // random seed for now
 
-    // 3. Player — spawn in Frozen Shores (outer ring, ~80% from center)
-    const spawnX = this.worldPixelSize * 0.80;
-    const spawnY = this.worldPixelSize * 0.50;
+    // 3. Player — spawn in Frozen Shores (corner diagonal puts them in the ice biome, dist > 0.75)
+    const spawnX = this.worldPixelSize * 0.88;
+    const spawnY = this.worldPixelSize * 0.88;
     this.player = this.physics.add.sprite(spawnX, spawnY, 'player');
     this.player.setDepth(10);
     this.player.setCollideWorldBounds(true);
@@ -158,8 +160,8 @@ export class GameScene extends Phaser.Scene {
       this.playerController.levelGains = { ...this.classDef.levelGains };
     }
 
-    // Enable permadeath in the overworld
-    this.playerController.permadeath = true;
+    // Respawn on death (no permadeath — progress persists)
+    this.playerController.permadeath = false;
 
     // 5. Projectile manager
     this.projectileManager = new ProjectileManager(this);
@@ -273,7 +275,10 @@ export class GameScene extends Phaser.Scene {
     // Restore mid-run state from localStorage (survives browser refresh)
     this.restoreRunState();
 
-    // 16. Listen for permadeath
+    // Emit initial objective so top-right box appears from the start
+    this.time.delayedCall(500, () => this.emitObjectiveUpdate());
+
+    // 16. Listen for death (respawn, not permadeath)
     this.events.on('playerDeath', this.onPermaDeath, this);
 
     // 17. Music
@@ -549,24 +554,12 @@ export class GameScene extends Phaser.Scene {
   // PERMADEATH
   // ========================================================================
 
-  /** Handle permanent death — transition to DeathScene */
+  /** Handle player death — respawn in place (progress is preserved) */
   private onPermaDeath(_data: { level: number; causeOfDeath: string }): void {
-    // Wipe saved run state on permadeath (fresh start required)
-    this.progressManager.clearRunState();
-
-    // Wait for the death overlay countdown, then go to DeathScene
-    this.time.delayedCall(3500, () => {
-      this.clearAllPortals();
-      this.scene.stop('GameScene');
-      this.scene.stop('UIScene');
-      this.scene.start('DeathScene', {
-        classId: this.classId,
-        level: this.playerController.level,
-        killedBy: _data.causeOfDeath ?? 'Unknown',
-        maxBiome: 'Midgard',
-        fameManager: this.fameManager,
-      });
-    });
+    // Save run state so progress persists through death
+    // PlayerController.permadeath = false, so it auto-respawns after 3s
+    // UIScene shows the "YOU DIED / Respawning in 3..." countdown overlay
+    this.saveRunState();
   }
 
   // ========================================================================
@@ -580,6 +573,9 @@ export class GameScene extends Phaser.Scene {
     // Save run state on every level-up so a refresh restores the new level
     this.saveRunState();
 
+    // Update objective box whenever player levels
+    this.emitObjectiveUpdate();
+
     const entry = this.DUNGEON_PROGRESSION.find(e => e.level === newLevel);
     if (!entry) return;
     if (this.spawnedDungeonPortals.has(entry.dungeonId)) return;
@@ -587,6 +583,7 @@ export class GameScene extends Phaser.Scene {
     // Small delay so the level-up text clears first
     this.time.delayedCall(1200, () => {
       this.spawnDungeonPortalNearPlayer(entry.dungeonId);
+      this.emitObjectiveUpdate(); // refresh after portal appears
     });
   }
 
@@ -688,6 +685,9 @@ export class GameScene extends Phaser.Scene {
     this.musicManager?.playSFX('sfx_portal');
     this.musicManager?.stopMusic();
 
+    // Save run state before sleeping so a browser refresh while in dungeon restores correctly
+    this.saveRunState();
+
     // Sleep GameScene (preserves all state) and start DungeonScene
     this.scene.sleep('GameScene');
     this.scene.start('DungeonScene', config);
@@ -699,14 +699,20 @@ export class GameScene extends Phaser.Scene {
     mp: number;
     level: number;
     xp: number;
+    maxHp?: number;
+    maxMp?: number;
+    xpToNext?: number;
     dungeonComplete: boolean;
     completedDungeonId?: string;
   }): void {
-    // Restore player stats from dungeon
-    this.playerController.hp = data.hp;
-    this.playerController.mp = data.mp;
+    // Restore player stats from dungeon (including any levels gained inside)
     this.playerController.level = data.level;
     this.playerController.xp = data.xp;
+    if (data.maxHp !== undefined) this.playerController.maxHp = data.maxHp;
+    if (data.maxMp !== undefined) this.playerController.maxMp = data.maxMp;
+    if (data.xpToNext !== undefined) this.playerController.xpToNext = data.xpToNext;
+    this.playerController.hp = data.hp;
+    this.playerController.mp = data.mp;
 
     // Persist run state after dungeon return
     this.saveRunState();
@@ -730,18 +736,34 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Spawn the next dungeon portal in sequence (if any)
+      // Always force-spawn on dungeon completion — remove stale tracking so portal re-appears
       if (data.completedDungeonId) {
         const currentIdx = this.DUNGEON_PROGRESSION.findIndex(e => e.dungeonId === data.completedDungeonId);
+        this.lastCompletedDungeonIdx = Math.max(this.lastCompletedDungeonIdx, currentIdx);
         const next = this.DUNGEON_PROGRESSION[currentIdx + 1];
-        if (next && !this.spawnedDungeonPortals.has(next.dungeonId)) {
+        if (next) {
+          // Remove stale tracking — portal might have been spawned then cleared when entering dungeon
+          this.spawnedDungeonPortals.delete(next.dungeonId);
           this.time.delayedCall(2000, () => {
             this.spawnDungeonPortalNearPlayer(next.dungeonId);
+            // Save AFTER portal spawns so saved state includes the new portal
+            this.saveRunState();
+            this.emitObjectiveUpdate();
           });
-        } else if (!next) {
-          // All dungeons done — spawn the world final boss
+        } else {
+          // All dungeons cleared — apply stat boost for the world boss fight
           this.time.delayedCall(2000, () => {
             this.events.emit('notification', 'All dungeons cleared!', '#44cc44');
-            this.events.emit('notification', 'Head to the CENTER of Midgard...', '#ffdd44');
+            this.events.emit('notification', '⚡ Power of Yggdrasil granted!', '#ffdd44');
+            this.events.emit('notification', 'Head to the CENTER of Midgard...', '#ff8800');
+            // Stat boost: ensure player is ready for the world boss regardless of level
+            this.playerController.maxHp = Math.max(this.playerController.maxHp, 500);
+            this.playerController.hp = this.playerController.maxHp;
+            this.playerController.maxMp = Math.max(this.playerController.maxMp, 200);
+            this.playerController.mp = this.playerController.maxMp;
+            this.playerController.attack = Math.max(this.playerController.attack, 45);
+            this.saveRunState();
+            this.emitObjectiveUpdate();
           });
           this.time.delayedCall(4000, () => {
             this.spawnWorldBoss();
@@ -751,6 +773,9 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.events.emit('notification', 'Returned to Midgard.', '#aaccff');
     }
+
+    // Update objective box after returning from dungeon
+    this.emitObjectiveUpdate();
   }
 
   /** Remove all active portals */
@@ -863,6 +888,7 @@ export class GameScene extends Phaser.Scene {
       maxMp: this.playerController.maxMp,
       mp: this.playerController.mp,
       spawnedPortals: Array.from(this.spawnedDungeonPortals).join(','),
+      lastCompletedDungeonIdx: this.lastCompletedDungeonIdx,
     };
     this.progressManager.saveRunState(state);
   }
@@ -910,18 +936,89 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Restore last completed dungeon index
+    if (state.lastCompletedDungeonIdx !== undefined) {
+      this.lastCompletedDungeonIdx = state.lastCompletedDungeonIdx;
+    }
+
     // Spawn the correct next dungeon portal if not yet spawned
-    // (e.g. after refresh mid-run, the portal needs to re-appear)
-    for (const entry of this.DUNGEON_PROGRESSION) {
-      if (!this.spawnedDungeonPortals.has(entry.dungeonId) && state.level >= entry.level) {
+    // Priority: use lastCompletedDungeonIdx (exact, even if level < next dungeon requirement)
+    // Fallback: level-based check (for saves from older sessions)
+    let portalSpawned = false;
+    if (this.lastCompletedDungeonIdx >= 0) {
+      const nextIdx = this.lastCompletedDungeonIdx + 1;
+      const nextEntry = this.DUNGEON_PROGRESSION[nextIdx];
+      if (nextEntry && !this.spawnedDungeonPortals.has(nextEntry.dungeonId)) {
         this.time.delayedCall(1500, () => {
-          this.spawnDungeonPortalNearPlayer(entry.dungeonId);
+          this.spawnDungeonPortalNearPlayer(nextEntry.dungeonId);
+          this.emitObjectiveUpdate();
         });
-        break; // only spawn the first eligible one
+        portalSpawned = true;
+      }
+    }
+    if (!portalSpawned) {
+      // Fallback: level-based portal re-spawn for existing saves
+      for (const entry of this.DUNGEON_PROGRESSION) {
+        if (!this.spawnedDungeonPortals.has(entry.dungeonId) && state.level >= entry.level) {
+          this.time.delayedCall(1500, () => {
+            this.spawnDungeonPortalNearPlayer(entry.dungeonId);
+            this.emitObjectiveUpdate();
+          });
+          break; // only spawn the first eligible one
+        }
       }
     }
 
     this.events.emit('notification', `Run restored — Level ${state.level}`, '#aaddff');
+    // Update objective box after state restore
+    this.emitObjectiveUpdate();
+  }
+
+  // ========================================================================
+  // OBJECTIVE BOX — top-right HUD panel showing current goal
+  // ========================================================================
+
+  /** Emit current dungeon progression objective to UIScene quest tracker */
+  private emitObjectiveUpdate(): void {
+    const level = this.playerController?.level ?? 1;
+    const objectives: { desc: string; current: number; target: number; done: boolean }[] = [];
+
+    // Show any active dungeon portals (highest priority)
+    for (const id of this.spawnedDungeonPortals) {
+      const d = getDungeon(id);
+      if (d) {
+        objectives.push({
+          desc: `Portal Active: ${d.name}!`,
+          current: 1, target: 1, done: false,
+        });
+      }
+    }
+
+    // Show next level goal if no portal is active for it
+    for (const entry of this.DUNGEON_PROGRESSION) {
+      if (this.spawnedDungeonPortals.has(entry.dungeonId)) continue;
+      if (level < entry.level) {
+        const d = getDungeon(entry.dungeonId);
+        if (d) {
+          objectives.push({
+            desc: `Kill to Lv.${entry.level} \u2192 ${d.name}`,
+            current: level, target: entry.level, done: false,
+          });
+          break; // only show the next immediate goal
+        }
+      }
+    }
+
+    // If all portals done and no next goal
+    if (objectives.length === 0) {
+      const allCleared = this.lastCompletedDungeonIdx >= this.DUNGEON_PROGRESSION.length - 1;
+      objectives.push({
+        desc: allCleared ? 'Seek the World Boss at center!' : 'Clear all dungeons to face Fenrir',
+        current: 1, target: 1, done: allCleared,
+      });
+    }
+
+    this.events.emit('questUpdate', [{ name: 'Objectives', objectives }]);
   }
 
   // ========================================================================

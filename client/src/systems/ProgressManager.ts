@@ -69,6 +69,8 @@ export interface PlayerRunState {
   mp: number;
   /** Which dungeon portals have already been spawned (comma-separated) */
   spawnedPortals: string;
+  /** Index into DUNGEON_PROGRESSION of the last completed dungeon (-1 = none) */
+  lastCompletedDungeonIdx?: number;
 }
 
 const STORAGE_KEY    = 'yggdrasil_progress_v1';

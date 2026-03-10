@@ -79,18 +79,18 @@ export class UIScene extends Phaser.Scene {
     this.xpGfx = this.add.graphics().setDepth(100);
 
     this.hpText = this.add.text(14 + this.barW / 2, 18, '200/200', {
-      fontFamily: 'monospace', fontSize: '11px', color: '#f0e4cc',
-      stroke: '#000', strokeThickness: 2,
+      fontFamily: 'monospace', fontSize: '11px', color: '#ffffff', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(101);
 
     this.mpText = this.add.text(14 + this.barW / 2, 38, '100/100', {
-      fontFamily: 'monospace', fontSize: '11px', color: '#f0e4cc',
-      stroke: '#000', strokeThickness: 2,
+      fontFamily: 'monospace', fontSize: '11px', color: '#ffffff', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(101);
 
     this.levelText = this.add.text(14 + this.barW / 2, 56, 'Lv. 1', {
-      fontFamily: 'monospace', fontSize: '11px', color: '#ddaa44',
-      stroke: '#000', strokeThickness: 2,
+      fontFamily: 'monospace', fontSize: '11px', color: '#ffdd44', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(101);
 
     // Gold display removed — gold system gone
@@ -139,7 +139,9 @@ export class UIScene extends Phaser.Scene {
     this.add.text(
       this.cameras.main.width / 2, this.cameras.main.height - 8,
       'WASD: Move  |  Click: Shoot  |  Space: Ability  |  M: Map  |  R: Nexus',
-      { fontFamily: 'monospace', fontSize: '9px', color: '#998877', stroke: '#000', strokeThickness: 1 },
+      { fontFamily: 'monospace', fontSize: '9px', color: '#000000', fontStyle: 'bold',
+        stroke: '#ffffff', strokeThickness: 2, backgroundColor: '#ffffffaa',
+        padding: { left: 4, right: 4, top: 1, bottom: 1 } },
     ).setOrigin(0.5).setDepth(100);
 
     // --- Keyboard ---
@@ -195,7 +197,7 @@ export class UIScene extends Phaser.Scene {
     this.mpGfx.lineStyle(1, 0x000000, 0.3); this.mpGfx.strokeRect(14, 30, this.barW, this.barH);
     this.mpText.setText(`${Math.ceil(d.mp)}/${d.maxMp}`);
 
-    const xpR = d.xpToNext > 0 ? Math.max(0, d.xp / d.xpToNext) : 1;
+    const xpR = d.xpToNext > 0 ? Math.min(1, Math.max(0, d.xp / d.xpToNext)) : 1;
     this.xpGfx.clear();
     this.xpGfx.fillStyle(0x555544); this.xpGfx.fillRect(14, 50, this.barW, 8);
     this.xpGfx.fillStyle(C.xpGold); this.xpGfx.fillRect(14, 50, this.barW * xpR, 8);
@@ -248,9 +250,9 @@ export class UIScene extends Phaser.Scene {
 
     // Ability name
     this.abilityTexts.push(this.add.text(cx, abY + 8, ab.name, {
-      fontFamily: 'monospace', fontSize: '8px',
-      color: isReady ? ab.color : '#555555',
-      stroke: '#000', strokeThickness: 1,
+      fontFamily: 'monospace', fontSize: '9px', fontStyle: 'bold',
+      color: isReady ? ab.color : '#888888',
+      stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(101));
 
     // Cooldown number or READY + mp cost
@@ -258,14 +260,15 @@ export class UIScene extends Phaser.Scene {
       ? `${Math.ceil(ab.cooldownRemaining)}s`
       : `READY  ${ab.mpCost}mp`;
     this.abilityTexts.push(this.add.text(cx, abY + 20, subLabel, {
-      fontFamily: 'monospace', fontSize: '7px',
-      color: isReady ? '#88bbff' : '#ffaa44',
-      stroke: '#000', strokeThickness: 1,
+      fontFamily: 'monospace', fontSize: '8px', fontStyle: 'bold',
+      color: isReady ? '#aaddff' : '#ffcc44',
+      stroke: '#000000', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(101));
 
     // SPACE label above
-    this.abilityTexts.push(this.add.text(cx, abY - 8, '[SPACE] Ability', {
-      fontFamily: 'monospace', fontSize: '7px', color: '#776655',
+    this.abilityTexts.push(this.add.text(cx, abY - 9, '[SPACE] Ability', {
+      fontFamily: 'monospace', fontSize: '8px', color: '#998866', fontStyle: 'bold',
+      stroke: '#000000', strokeThickness: 1,
     }).setOrigin(0.5).setDepth(100));
   }
 
@@ -305,34 +308,40 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
-  // ---- Quest tracker (top-right) ---- BIGGER TEXT
+  // ---- Objective / Quest tracker (top-right) ----
   private onQuestTrackerUpdate(quests: { name: string; objectives: { desc: string; current: number; target: number; done: boolean }[] }[]): void {
     this.questTexts.forEach(t => t.destroy());
     this.questTexts = [];
     this.questGfx.clear();
     if (quests.length === 0) return;
 
-    const x = this.cameras.main.width - 195;
+    const x = this.cameras.main.width - 210;
     let y = 6;
     let lines = 0;
     for (const q of quests) { lines += 1 + q.objectives.length; }
-    this.drawPanel(this.questGfx, x - 4, 2, 195, lines * 15 + 16);
+    this.drawPanel(this.questGfx, x - 6, 2, 210, lines * 17 + 16);
 
     for (const q of quests) {
-      const nt = this.add.text(x + 2, y + 2, q.name, {
-        fontFamily: 'monospace', fontSize: '11px', color: '#ddaa44', fontStyle: 'bold',
-        stroke: '#000', strokeThickness: 1,
+      // Panel header (e.g. "Objectives")
+      const nt = this.add.text(x + 2, y + 2, q.name.toUpperCase(), {
+        fontFamily: 'monospace', fontSize: '10px', color: '#ddaa44', fontStyle: 'bold',
+        stroke: '#000000', strokeThickness: 2,
       }).setDepth(101);
       this.questTexts.push(nt);
-      y += 15;
+      y += 17;
       for (const o of q.objectives) {
-        const ch = o.done ? '✓' : '○';
-        const c = o.done ? '#44aa44' : '#3d2410';
-        const ot = this.add.text(x + 8, y + 2, `${ch} ${o.desc} (${o.current}/${o.target})`, {
-          fontFamily: 'monospace', fontSize: '10px', color: c,
+        const ch = o.done ? '✓' : '▶';
+        // Show progress bar style for non-done with numeric goals
+        const showBar = !o.done && o.target > 1;
+        const progText = showBar ? ` (${o.current}/${o.target})` : '';
+        const c = o.done ? '#22aa22' : '#111111';
+        const ot = this.add.text(x + 6, y + 2, `${ch} ${o.desc}${progText}`, {
+          fontFamily: 'monospace', fontSize: '10px', color: c, fontStyle: 'bold',
+          stroke: '#ffffff', strokeThickness: 1,
+          wordWrap: { width: 190 },
         }).setDepth(101);
         this.questTexts.push(ot);
-        y += 15;
+        y += Math.max(17, ot.height + 4);
       }
     }
   }
@@ -637,31 +646,33 @@ export class UIScene extends Phaser.Scene {
       }
 
     } else {
-      // ---- OVERWORLD minimap: biome rings ----
-      const viewRadius = 900;
-      const scale = r / viewRadius;
+      // ---- OVERWORLD minimap ----
+      // Two scales: world scale for biome rings, local scale for enemy/portal dots
+      const worldRadius = d.worldSize / 2;
+      const worldScale = r / worldRadius;   // maps full world into minimap circle
+      const localScale = r / 900;           // local view: 900px radius around player
 
       const worldCenter = d.worldSize / 2;
-      const wcMmX = (worldCenter - d.playerX) * scale;
-      const wcMmY = (worldCenter - d.playerY) * scale;
+      const wcMmX = (worldCenter - d.playerX) * worldScale;
+      const wcMmY = (worldCenter - d.playerY) * worldScale;
 
-      const worldRadius = d.worldSize / 2;
+      // Biome rings drawn at correct world scale (matches getBiomeForDistance thresholds)
       const biomeRings = [
-        { maxDist: 1.0, color: 0x8aabbf },
-        { maxDist: 0.75, color: 0x5a7a4a },
-        { maxDist: 0.40, color: 0x6b3a2e },
-        { maxDist: 0.15, color: 0x2a1a3e },
+        { maxDist: 1.0, color: 0x8aabbf },  // Frozen Shores (outer)
+        { maxDist: 0.75, color: 0x5a7a4a }, // Birch Forest
+        { maxDist: 0.40, color: 0x6b3a2e }, // Volcanic Wastes
+        { maxDist: 0.15, color: 0x2a1a3e }, // Niflheim Depths (center)
       ];
       for (const ring of biomeRings) {
-        const ringR = ring.maxDist * worldRadius * scale;
+        const ringR = ring.maxDist * worldRadius * worldScale;
         g.fillStyle(ring.color, 0.7);
         g.fillCircle(cx + wcMmX, cy + wcMmY, ringR);
       }
 
-      // Enemy dots
+      // Enemy dots — use local scale so nearby enemies are visible
       for (const e of d.enemies) {
-        const ex = (e.x - d.playerX) * scale;
-        const ey = (e.y - d.playerY) * scale;
+        const ex = (e.x - d.playerX) * localScale;
+        const ey = (e.y - d.playerY) * localScale;
         const distFromCenter = Math.sqrt(ex * ex + ey * ey);
         if (distFromCenter < r - 2) {
           g.fillStyle(0xcc3333, 0.9);
@@ -669,11 +680,11 @@ export class UIScene extends Phaser.Scene {
         }
       }
 
-      // Portal dots
+      // Portal dots — use local scale so nearby portals are visible
       if (d.portals) {
         for (const p of d.portals) {
-          const px = (p.x - d.playerX) * scale;
-          const py = (p.y - d.playerY) * scale;
+          const px = (p.x - d.playerX) * localScale;
+          const py = (p.y - d.playerY) * localScale;
           const distFromCenter = Math.sqrt(px * px + py * py);
           if (distFromCenter < r - 2) {
             const pulse = Math.sin(Date.now() * 0.006) * 0.3 + 0.7;
@@ -747,13 +758,13 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
-  // ---- Notification toast ---- BIGGER, LONGER DISPLAY
+  // ---- Notification toast ----
   showNotification(message: string, color: string = '#ddaa44'): void {
     const t = this.add.text(this.cameras.main.width / 2, 80, message, {
-      fontFamily: 'monospace', fontSize: '13px', color,
-      stroke: '#000', strokeThickness: 3,
-      backgroundColor: '#00000066',
-      padding: { left: 8, right: 8, top: 4, bottom: 4 },
+      fontFamily: 'monospace', fontSize: '14px', fontStyle: 'bold', color,
+      stroke: '#000000', strokeThickness: 4,
+      backgroundColor: '#000000aa',
+      padding: { left: 10, right: 10, top: 5, bottom: 5 },
     }).setOrigin(0.5).setDepth(120);
     this.tweens.add({
       targets: t,

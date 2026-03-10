@@ -21,8 +21,8 @@ export class MusicManager {
   private currentTrackKey: string = '';
 
   // Volume settings
-  private readonly MUSIC_VOLUME = 0.22;   // quieter background music
-  private readonly SFX_VOLUME = 0.55;     // loud enough to hear clearly
+  private readonly MUSIC_VOLUME = 0.10;   // RuneScape-level ambient background
+  private readonly SFX_VOLUME = 0.40;     // clear but not jarring
 
   // SFX cooldowns to prevent spamming
   private sfxCooldowns: Map<string, number> = new Map();

@@ -66,11 +66,13 @@ export class SpriteGenerator {
 
   // --- Projectiles ---
   static generateProjectileSprites(scene: Phaser.Scene): void {
-    // Player projectile (bright yellow-white bolt)
+    // Player projectile (bright yellow-white bolt with black outline)
     const pg = scene.add.graphics();
-    pg.fillStyle(0xffffaa);
+    pg.fillStyle(0x000000);    // black outline/background
+    pg.fillRect(0, 0, 6, 6);
+    pg.fillStyle(0xffffaa);    // yellow bolt
     pg.fillRect(1, 1, 4, 4);
-    pg.fillStyle(0xffffff);
+    pg.fillStyle(0xffffff);    // bright center
     pg.fillRect(2, 2, 2, 2);
     pg.generateTexture('projectile_player', 6, 6);
     pg.destroy();

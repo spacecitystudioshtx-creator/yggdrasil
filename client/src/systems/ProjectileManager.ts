@@ -154,7 +154,9 @@ export class ProjectileManager {
         projectile.setData('spawnTime', this.scene.time.now);
         projectile.setData('lifetime', wp.projectileLifetime);
         projectile.setData('isPlayer', true);
-        projectile.setData('damageMultiplier', wp.damageMultiplier);
+        // Multi-bullet penalty: each bullet deals 50% less when count > 1
+        const perBulletMultiplier = count > 1 ? wp.damageMultiplier * 0.5 : wp.damageMultiplier;
+        projectile.setData('damageMultiplier', perBulletMultiplier);
 
         // Apply tint
         projectile.setTint(wp.projectileTint);

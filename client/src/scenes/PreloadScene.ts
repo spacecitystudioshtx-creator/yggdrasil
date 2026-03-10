@@ -19,6 +19,11 @@ export class PreloadScene extends Phaser.Scene {
       ['music_overworld', 'assets/audio/music_overworld.mp3'],
       ['music_dungeon', 'assets/audio/music_dungeon.mp3'],
       ['music_boss', 'assets/audio/music_boss.mp3'],
+      // Per-dungeon ambient tracks (loaded conditionally — missing files are silently skipped)
+      ['music_dungeon_frost',      'assets/audio/music_dungeon_frost.mp3'],
+      ['music_dungeon_verdant',    'assets/audio/music_dungeon_verdant.mp3'],
+      ['music_dungeon_muspelheim', 'assets/audio/music_dungeon_muspelheim.mp3'],
+      ['music_dungeon_helheim',    'assets/audio/music_dungeon_helheim.mp3'],
       // Sound effects
       ['sfx_ability', 'assets/audio/sfx_ability.mp3'],
       ['sfx_hit_enemy', 'assets/audio/sfx_hit_enemy.mp3'],
