@@ -99,7 +99,8 @@ export class DungeonScene extends Phaser.Scene {
   // Exit portal
   private exitPortal: Phaser.Physics.Arcade.Sprite | null = null;
   private dungeonComplete: boolean = false;
-  private isExiting: boolean = false;   // guard to prevent double-exit
+  private isExiting: boolean = false;       // guard to prevent double-exit
+  private hasTransitioned: boolean = false; // guard to prevent double scene transition
 
   // Enemy health bars (world-space graphics)
   private enemyHealthBars: Map<Phaser.Physics.Arcade.Sprite, Phaser.GameObjects.Graphics> = new Map();
@@ -138,6 +139,7 @@ export class DungeonScene extends Phaser.Scene {
     this.exitPortal = null;
     this.dungeonComplete = false;
     this.isExiting = false;
+    this.hasTransitioned = false;
     this.enemyHealthBars = new Map();
     this.doorGraphics = [];
     // Resolve class tint for damage flash restoration
@@ -1334,7 +1336,6 @@ export class DungeonScene extends Phaser.Scene {
       maxHp: this.playerController.maxHp,
       maxMp: this.playerController.maxMp,
       xpToNext: this.playerController.xpToNext,
-      // Include combat stats so levels gained inside the dungeon fully carry back
       attack: this.playerController.attack,
       defense: this.playerController.defense,
       speed: this.playerController.speed,
@@ -1345,30 +1346,24 @@ export class DungeonScene extends Phaser.Scene {
       completedDungeonId: this.dungeonComplete ? this.config.dungeonDef.id : undefined,
     };
 
-    // Disable player movement (don't use isDead — just remove velocity)
+    // Disable player movement
     this.playerController.isDead = true;
     if (this.player.body) {
       (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
     }
 
-    // Hard failsafe: if the callback below throws or the camera event never fires,
-    // force the scene transition after 2 seconds so the game never gets stuck black.
-    this.time.delayedCall(2000, () => {
-      if (!this.isExiting) return; // already exited normally
-      console.warn('[DungeonScene] Failsafe triggered — forcing scene transition');
+    // Global failsafe (window.setTimeout, NOT scene-scoped) — survives DungeonScene shutdown.
+    // If camerafadeoutcomplete never fires, this forces the transition after 1.5s.
+    // Uses hasTransitioned guard so it's a no-op when the normal path already ran.
+    window.setTimeout(() => {
+      console.warn('[DungeonScene] Global failsafe triggered');
       this.doSceneTransition(returnData);
-    });
+    }, 1500);
 
-    // Fade camera to black
+    // Fade camera to black, then transition
     this.cameras.main.fadeOut(500, 0, 0, 0);
-
     this.cameras.main.once('camerafadeoutcomplete', () => {
-      try {
-        this.doSceneTransition(returnData);
-      } catch (err) {
-        console.error('[DungeonScene] Error during scene transition:', err);
-        this.doSceneTransition(returnData);
-      }
+      this.doSceneTransition(returnData);
     });
   }
 
@@ -1376,23 +1371,36 @@ export class DungeonScene extends Phaser.Scene {
   // HELPERS
   // ========================================================================
 
-  /** Shared transition logic used by exitDungeon and the 2s failsafe. */
+  /** Scene transition — guarded so it only ever runs ONCE per dungeon exit. */
   private doSceneTransition(returnData: object): void {
-    const gs = this.scene.get('GameScene');
-    if (this.scene.isSleeping('GameScene')) {
-      this.scene.wake('GameScene', returnData);
-    } else if (!this.scene.isActive('GameScene')) {
-      this.scene.start('GameScene', { classId: this.config.classId, startStage: 0 });
-      if (gs) gs.events.emit('returnFromDungeon', returnData);
-    } else {
-      if (gs) gs.events.emit('returnFromDungeon', returnData);
+    // Guard: if already transitioned (e.g. failsafe fires after normal path), do nothing.
+    if (this.hasTransitioned) return;
+    this.hasTransitioned = true;
+
+    try {
+      const gs = this.scene.get('GameScene');
+      if (this.scene.isSleeping('GameScene')) {
+        this.scene.wake('GameScene', returnData);
+      } else if (!this.scene.isActive('GameScene')) {
+        this.scene.start('GameScene', { classId: this.config.classId, startStage: 0 });
+        if (gs) gs.events.emit('returnFromDungeon', returnData);
+      } else {
+        if (gs) gs.events.emit('returnFromDungeon', returnData);
+      }
+    } catch (err) {
+      console.error('[DungeonScene] Error waking GameScene:', err);
     }
-    // Stop DungeonScene shortly after so its black camera stops covering GameScene.
-    if (this.scene.isActive('DungeonScene')) {
-      this.time.delayedCall(50, () => {
-        if (this.scene.isActive('DungeonScene')) this.scene.stop('DungeonScene');
-      });
-    }
+
+    // Stop DungeonScene using window.setTimeout (global timer, not scene-scoped).
+    // This is critical: this.time.delayedCall would be cancelled if DungeonScene's
+    // time plugin shuts down for any reason, leaving the black camera up permanently.
+    window.setTimeout(() => {
+      try {
+        if (this.scene?.isActive('DungeonScene')) {
+          this.scene.stop('DungeonScene');
+        }
+      } catch (e) { /* scene already gone */ }
+    }, 100);
   }
 
   private restorePlayerStats(): void {
