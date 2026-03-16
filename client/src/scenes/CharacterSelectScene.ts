@@ -525,17 +525,13 @@ export class CharacterSelectScene extends Phaser.Scene {
         fontFamily: 'monospace', fontSize: '10px', color: '#44aa44', fontStyle: 'bold',
       }).setOrigin(1, 0.5));
 
-      // Click to select
+      // Click to confirm — single click selects AND launches.
+      // (No pointerdown refresh: refreshing destroys the zone before pointerup fires.)
       const zone = this.add.zone(cardX + cardW / 2, cardY + cardH / 2, cardW, cardH);
       zone.setInteractive({ useHandCursor: true });
-      zone.on('pointerdown', () => {
-        this.stageSelectedIndex = i;
-        this.refreshStageCards(cls);
-      });
       zone.on('pointerup', () => {
-        if (this.stageSelectedIndex === i) {
-          this.confirmStageAndLaunch(cls);
-        }
+        this.stageSelectedIndex = i;
+        this.confirmStageAndLaunch(cls);
       });
       card.add(zone);
 

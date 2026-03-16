@@ -710,18 +710,14 @@ export class DungeonScene extends Phaser.Scene {
     const bossDef = this.bossData.def;
     const hpRatio = this.bossData.hp / this.bossData.maxHp;
 
-    // Lazy-init health bar + music when player enters the boss room
+    // Lazy-init health bar + music when player gets close to the boss.
+    // Uses distance from boss sprite (more reliable than room-bounds check).
     if (!this.bossHealthBar) {
-      const bossRoom = this.rooms[this.rooms.length - 1];
-      const roomLeft   = bossRoom.x * TILE_SIZE - 48;
-      const roomRight  = (bossRoom.x + bossRoom.w) * TILE_SIZE + 48;
-      const roomTop    = bossRoom.y * TILE_SIZE - 48;
-      const roomBottom = (bossRoom.y + bossRoom.h) * TILE_SIZE + 48;
-      const playerInBossRoom = (
-        this.player.x >= roomLeft && this.player.x <= roomRight &&
-        this.player.y >= roomTop  && this.player.y <= roomBottom
-      );
-      if (!playerInBossRoom) return; // boss dormant until player enters room
+      const dx = this.player.x - this.boss.x;
+      const dy = this.player.y - this.boss.y;
+      const distSq = dx * dx + dy * dy;
+      const AWAKEN_DIST = 300; // pixels — generous so player definitely sees awakening
+      if (distSq > AWAKEN_DIST * AWAKEN_DIST) return; // boss dormant until player is close
 
       // ---- BOSS AWAKENING ----
       this.musicManager?.playMusic('music_boss');
@@ -1133,8 +1129,6 @@ export class DungeonScene extends Phaser.Scene {
 
     // Is this the boss?
     if (enemy.getData('isBoss') && this.bossData) {
-      // Only take damage once boss is awake (health bar initialized = player entered room)
-      if (!this.bossHealthBar) return;
       this.bossData.hp -= damage;
       this.musicManager?.playSFX('sfx_hit_enemy');
 
