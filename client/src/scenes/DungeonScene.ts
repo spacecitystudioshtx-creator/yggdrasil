@@ -8,7 +8,7 @@ import { InventoryManager } from '../systems/InventoryManager';
 import { QuestManager } from '../systems/QuestManager';
 import { AbilitySystem } from '../systems/AbilitySystem';
 import { MusicManager } from '../systems/MusicManager';
-import { TILE_SIZE, ItemType, BulletPatternType } from '@yggdrasil/shared';
+import { TILE_SIZE, ItemType, BulletPatternType, xpForLevel } from '@yggdrasil/shared';
 import { DungeonDef, DungeonBossDef } from '../data/DungeonDatabase';
 import { getItem } from '../data/ItemDatabase';
 import { getClass } from '../data/ClassDatabase';
@@ -299,10 +299,16 @@ export class DungeonScene extends Phaser.Scene {
     const dungeonMusicKey = def.musicKey ?? 'music_dungeon';
     const hasSpecificTrack = this.cache.audio.has(dungeonMusicKey);
     this.musicManager.playMusic(hasSpecificTrack ? dungeonMusicKey : 'music_dungeon');
+
+    // 20. Notify UIScene to re-wire its event listeners (scene.start resets event emitter)
+    this.game.events.emit('dungeonSceneReady');
   }
 
   update(time: number, delta: number): void {
     const dt = delta / 1000;
+
+    // Once exiting, freeze all dungeon logic — only the camera fade runs
+    if (this.isExiting) return;
 
     // Crosshair
     this.crosshair.setPosition(
@@ -339,8 +345,8 @@ export class DungeonScene extends Phaser.Scene {
       );
     }
 
-    // Check R to nexus (exit dungeon)
-    if (this.inputManager.isNexusPressed() && !this.playerController.isDead && !this.isExiting) {
+    // Check P to exit dungeon
+    if (this.inputManager.isPortalKeyPressed() && !this.playerController.isDead && !this.isExiting) {
       this.isExiting = true;
       this.exitDungeon();
       return;
@@ -660,10 +666,20 @@ export class DungeonScene extends Phaser.Scene {
     this.boss = this.physics.add.sprite(room.centerX, room.centerY, bossDef.textureKey);
     this.boss.setDepth(10);
     this.boss.setScale(1.5);
-    this.boss.body!.setSize(20, 20);
+    this.boss.body!.setSize(28, 28); // hitbox matches scaled visual size
     if (this.config.dungeonDef.bossTint) {
       this.boss.setTint(this.config.dungeonDef.bossTint);
     }
+    // Dormant state — ghost-like until player enters the boss room
+    this.boss.setAlpha(0.35);
+    this.tweens.add({
+      targets: this.boss,
+      alpha: { from: 0.25, to: 0.45 },
+      duration: 1400,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
 
     const scaledHp = Math.floor(bossDef.maxHp * hpMult);
 
@@ -706,8 +722,10 @@ export class DungeonScene extends Phaser.Scene {
         this.player.y >= roomTop  && this.player.y <= roomBottom
       );
       if (!playerInBossRoom) return; // boss dormant until player enters room
+
+      // ---- BOSS AWAKENING ----
       this.musicManager?.playMusic('music_boss');
-      this.bossHealthBar = this.add.graphics().setScrollFactor(0).setDepth(200);
+      this.bossHealthBar = this.add.graphics().setDepth(30); // world-space, floats above boss
       const screenCX = this.cameras.main.width / 2;
       this.bossNameText = this.add.text(screenCX, 12, bossDef.name, {
         fontFamily: 'monospace',
@@ -716,12 +734,41 @@ export class DungeonScene extends Phaser.Scene {
         stroke: '#000',
         strokeThickness: 3,
       }).setOrigin(0.5).setScrollFactor(0).setDepth(201);
-      this.events.emit('notification', bossDef.name + ' approaches!', '#ff8888');
+      this.events.emit('notification', bossDef.name + ' awakens!', '#ff4444');
+
+      // Kill dormant pulsing tween and animate boss to full presence
+      this.tweens.killTweensOf(this.boss!);
+      this.tweens.add({
+        targets: this.boss,
+        alpha: 1.0,
+        scaleX: 1.8,
+        scaleY: 1.8,
+        duration: 400,
+        ease: 'Back.easeOut',
+        onComplete: () => {
+          // Snap back to normal scale after the entrance pop
+          if (this.boss?.active) {
+            this.tweens.add({ targets: this.boss, scaleX: 1.5, scaleY: 1.5, duration: 200, ease: 'Power2' });
+          }
+        },
+      });
+      // Brief white flash for dramatic entrance
+      this.boss!.setTint(0xffffff);
+      this.time.delayedCall(300, () => {
+        if (this.boss?.active && this.config.dungeonDef.bossTint) {
+          this.boss.setTint(this.config.dungeonDef.bossTint);
+        } else if (this.boss?.active) {
+          this.boss.clearTint();
+        }
+      });
     }
 
-    // Determine current phase
+    // Determine current phase — iterate forward so the last (most advanced) matching
+    // phase wins. e.g. thresholds [1.0, 0.6, 0.25]: at 20% hp all three match but
+    // the final value is phase 2 (correct). The old backward loop always ended with
+    // phase 0 (threshold 1.0 is always true), preventing any phase transitions.
     let phaseIndex = 0;
-    for (let i = bossDef.phases.length - 1; i >= 0; i--) {
+    for (let i = 0; i < bossDef.phases.length; i++) {
       if (hpRatio <= bossDef.phases[i].healthThreshold) {
         phaseIndex = i;
       }
@@ -787,16 +834,16 @@ export class DungeonScene extends Phaser.Scene {
     // Update spiral angle for spiral patterns
     this.bossData.spiralAngle += dt * 2;
 
-    // Update boss health bar (screen-space: setScrollFactor(0) but draw at screen coords)
-    if (this.bossHealthBar) {
+    // Update boss health bar (world-space: floats above the boss sprite like enemy bars)
+    if (this.bossHealthBar && this.boss) {
       this.bossHealthBar.clear();
-      const screenW = this.cameras.main.width;
-      const barW = Math.floor(screenW * 0.5), barH = 12;
-      const bx = (screenW - barW) / 2, by = 26;
+      const barW = 44, barH = 5;
+      const bx = this.boss.x - barW / 2;
+      const by = this.boss.y - 22;
 
       // Background
       this.bossHealthBar.fillStyle(0x111111, 0.9);
-      this.bossHealthBar.fillRoundedRect(bx - 2, by - 2, barW + 4, barH + 4, 3);
+      this.bossHealthBar.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
 
       // HP fill
       const color = hpRatio > 0.5 ? 0xcc3333 : hpRatio > 0.25 ? 0xcc6633 : 0xff2222;
@@ -806,12 +853,6 @@ export class DungeonScene extends Phaser.Scene {
       // Border
       this.bossHealthBar.lineStyle(1, 0x888888, 0.8);
       this.bossHealthBar.strokeRect(bx, by, barW, barH);
-
-      // Phase glow at thresholds
-      if (hpRatio < 0.5 && hpRatio > 0.48) {
-        this.bossHealthBar.lineStyle(2, 0xff4444, 1);
-        this.bossHealthBar.strokeRect(bx - 3, by - 3, barW + 6, barH + 6);
-      }
     }
   }
 
@@ -1092,7 +1133,10 @@ export class DungeonScene extends Phaser.Scene {
 
     // Is this the boss?
     if (enemy.getData('isBoss') && this.bossData) {
+      // Only take damage once boss is awake (health bar initialized = player entered room)
+      if (!this.bossHealthBar) return;
       this.bossData.hp -= damage;
+      this.musicManager?.playSFX('sfx_hit_enemy');
 
       // White flash then restore boss tint
       const bossTint = this.config.dungeonDef.bossTint;
@@ -1296,6 +1340,13 @@ export class DungeonScene extends Phaser.Scene {
       maxHp: this.playerController.maxHp,
       maxMp: this.playerController.maxMp,
       xpToNext: this.playerController.xpToNext,
+      // Include combat stats so levels gained inside the dungeon fully carry back
+      attack: this.playerController.attack,
+      defense: this.playerController.defense,
+      speed: this.playerController.speed,
+      dexterity: this.playerController.dexterity,
+      vitality: this.playerController.vitality,
+      wisdom: this.playerController.wisdom,
       dungeonComplete: this.dungeonComplete,
       completedDungeonId: this.dungeonComplete ? this.config.dungeonDef.id : undefined,
     };
@@ -1306,25 +1357,24 @@ export class DungeonScene extends Phaser.Scene {
       (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
     }
 
+    // Hard failsafe: if the callback below throws or the camera event never fires,
+    // force the scene transition after 2 seconds so the game never gets stuck black.
+    this.time.delayedCall(2000, () => {
+      if (!this.isExiting) return; // already exited normally
+      console.warn('[DungeonScene] Failsafe triggered — forcing scene transition');
+      this.doSceneTransition(returnData);
+    });
+
     // Fade camera to black
     this.cameras.main.fadeOut(500, 0, 0, 0);
 
     this.cameras.main.once('camerafadeoutcomplete', () => {
-      // Wake or restart GameScene — scene.run() handles all states
-      const gs = this.scene.get('GameScene');
-
-      if (this.scene.isSleeping('GameScene')) {
-        this.scene.wake('GameScene');
-      } else if (!this.scene.isActive('GameScene')) {
-        this.scene.start('GameScene');
+      try {
+        this.doSceneTransition(returnData);
+      } catch (err) {
+        console.error('[DungeonScene] Error during scene transition:', err);
+        this.doSceneTransition(returnData);
       }
-
-      // Emit return event on the next frame so GameScene is fully awake
-      this.time.delayedCall(100, () => {
-        if (gs) gs.events.emit('returnFromDungeon', returnData);
-        // Stop dungeon scene after event is dispatched
-        this.time.delayedCall(50, () => this.scene.stop('DungeonScene'));
-      });
     });
   }
 
@@ -1332,11 +1382,32 @@ export class DungeonScene extends Phaser.Scene {
   // HELPERS
   // ========================================================================
 
+  /** Shared transition logic used by exitDungeon and the 2s failsafe. */
+  private doSceneTransition(returnData: object): void {
+    const gs = this.scene.get('GameScene');
+    if (this.scene.isSleeping('GameScene')) {
+      this.scene.wake('GameScene', returnData);
+    } else if (!this.scene.isActive('GameScene')) {
+      this.scene.start('GameScene', { classId: this.config.classId, startStage: 0 });
+      if (gs) gs.events.emit('returnFromDungeon', returnData);
+    } else {
+      if (gs) gs.events.emit('returnFromDungeon', returnData);
+    }
+    // Stop DungeonScene shortly after so its black camera stops covering GameScene.
+    if (this.scene.isActive('DungeonScene')) {
+      this.time.delayedCall(50, () => {
+        if (this.scene.isActive('DungeonScene')) this.scene.stop('DungeonScene');
+      });
+    }
+  }
+
   private restorePlayerStats(): void {
     const s = this.config.playerStats;
     const pc = this.playerController;
     pc.level = this.config.playerLevel;
     pc.xp = this.config.playerXp;
+    // Set xpToNext correctly for the entry level (not the default level-1 value)
+    pc.xpToNext = xpForLevel(pc.level + 1) - xpForLevel(pc.level);
     pc.hp = this.config.playerHp;
     pc.mp = this.config.playerMp;
     pc.maxHp = s.maxHp;

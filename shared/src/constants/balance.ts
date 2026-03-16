@@ -3,18 +3,19 @@
 // ============================================================================
 
 // --- XP Curve ---
-// Level 1-30, RotMG style: fast early leveling, steady pace to cap
-export const MAX_LEVEL = 30;
+// No hard level cap — XP curve keeps growing quadratically
+export const MAX_LEVEL = 9999;
 
 // XP required to reach level N (cumulative)
+// TEMP: divide by 10 for debug testing — restore before release
 export function xpForLevel(level: number): number {
   if (level <= 1) return 0;
   // Quadratic curve: feels fast early, slows mid, manageable at high
-  return Math.floor(50 * (level - 1) * (level - 1));
+  return Math.floor(50 * (level - 1) * (level - 1) / 10);
 }
 
-// Total XP to reach max level
-export const XP_TO_MAX = xpForLevel(MAX_LEVEL); // 18,050
+// Total XP to reach max level (effectively uncapped)
+export const XP_TO_MAX = xpForLevel(MAX_LEVEL);
 
 // --- Stat Potion Values ---
 export const STAT_POTION_INCREMENT = 1;  // Each rune stone adds 1 to a stat

@@ -16,7 +16,7 @@ export class InputManager {
   private keyDown!: Phaser.Input.Keyboard.Key;
   private keyLeft!: Phaser.Input.Keyboard.Key;
   private keyRight!: Phaser.Input.Keyboard.Key;
-  private keyR!: Phaser.Input.Keyboard.Key;    // Nexus (future)
+  private keyP!: Phaser.Input.Keyboard.Key;    // Portal summon
   private keySpace!: Phaser.Input.Keyboard.Key; // Ability (future)
 
   constructor(scene: Phaser.Scene) {
@@ -31,7 +31,7 @@ export class InputManager {
     this.keyDown = kb.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
     this.keyLeft = kb.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT);
     this.keyRight = kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT);
-    this.keyR = kb.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+    this.keyP = kb.addKey(Phaser.Input.Keyboard.KeyCodes.P);
     this.keySpace = kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
   }
 
@@ -69,8 +69,8 @@ export class InputManager {
     return Phaser.Input.Keyboard.JustDown(this.keySpace);
   }
 
-  /** Is nexus key pressed? */
-  isNexusPressed(): boolean {
-    return Phaser.Input.Keyboard.JustDown(this.keyR);
+  /** Is portal key pressed? (P — summon current dungeon portal to player) */
+  isPortalKeyPressed(): boolean {
+    return Phaser.Input.Keyboard.JustDown(this.keyP);
   }
 }

@@ -102,6 +102,9 @@ export class CharacterSelectScene extends Phaser.Scene {
         fontFamily: 'monospace',
         fontSize: '10px',
         color: '#ddaa44',
+        fontStyle: 'bold',
+        stroke: '#000000',
+        strokeThickness: 3,
       }).setOrigin(0.5));
 
       // Weapon type
@@ -145,17 +148,21 @@ export class CharacterSelectScene extends Phaser.Scene {
 
     // Keyboard controls
     this.input.keyboard!.on('keydown-LEFT', () => {
+      if (this.stageOverlay) return; // stage select handles navigation
       this.selectedIndex = (this.selectedIndex - 1 + this.classes.length) % this.classes.length;
       this.updateSelection();
     });
     this.input.keyboard!.on('keydown-RIGHT', () => {
+      if (this.stageOverlay) return;
       this.selectedIndex = (this.selectedIndex + 1) % this.classes.length;
       this.updateSelection();
     });
     this.input.keyboard!.on('keydown-ENTER', () => {
+      if (this.stageOverlay) return; // stage select ENTER handler takes priority
       this.confirmSelection();
     });
     this.input.keyboard!.on('keydown-SPACE', () => {
+      if (this.stageOverlay) return;
       this.confirmSelection();
     });
 
@@ -198,13 +205,17 @@ export class CharacterSelectScene extends Phaser.Scene {
       fontFamily: 'monospace',
       fontSize: '16px',
       color: '#ddaa44',
+      fontStyle: 'bold',
+      stroke: '#000000',
+      strokeThickness: 4,
     }).setOrigin(0.5));
 
     // Description
     this.detailPanel.add(this.add.text(px + pw / 2, py + 36, cls.description, {
       fontFamily: 'monospace',
       fontSize: '9px',
-      color: '#5c3a1e',
+      color: '#000000',
+      fontStyle: 'bold',
       wordWrap: { width: pw - 40 },
     }).setOrigin(0.5));
 
@@ -405,12 +416,14 @@ export class CharacterSelectScene extends Phaser.Scene {
     this.showStageSelect(cls, allOptions);
   }
 
-  private showStageSelect(cls: ClassDef, checkpoints: typeof STAGE_CHECKPOINTS): void {
+  private showStageSelect(cls: ClassDef, checkpoints: StageCheckpoint[]): void {
     this.stageSelectedIndex = 0;
     this.stageCheckpoints = checkpoints;
     this.stageCards = [];
 
     if (this.stageOverlay) { this.stageOverlay.destroy(); this.stageOverlay = null; }
+    this.stageKeys.forEach(k => k.destroy());
+    this.stageKeys = [];
     this.stageOverlay = this.add.container(0, 0).setDepth(200);
 
     // Dim backdrop
@@ -419,27 +432,67 @@ export class CharacterSelectScene extends Phaser.Scene {
     backdrop.fillRect(0, 0, 800, 600);
     this.stageOverlay.add(backdrop);
 
-    // Panel
-    const pw = 420, ph = 80 + checkpoints.length * 56 + 30;
-    const px = 400 - pw / 2, py = 300 - ph / 2;
+    // Panel — extra height for the dot progress bar at top
+    const pw = 420, ph = 110 + checkpoints.length * 56 + 20;
+    const px = 400 - pw / 2, py = Math.max(20, 300 - ph / 2);
     const panel = this.add.graphics();
     panel.fillStyle(0x2a1a0e); panel.fillRect(px, py, pw, ph);
     panel.fillStyle(0x5c3a1e); panel.fillRect(px + 2, py + 2, pw - 4, ph - 4);
     panel.fillStyle(0xdec9a0, 0.95); panel.fillRect(px + 4, py + 4, pw - 8, ph - 8);
     this.stageOverlay.add(panel);
 
-    this.stageOverlay.add(this.add.text(400, py + 18, `${cls.name} — Choose Starting Point`, {
+    this.stageOverlay.add(this.add.text(400, py + 16, `${cls.name} — Choose Starting Point`, {
       fontFamily: 'monospace', fontSize: '13px', color: '#3d2410',
       stroke: '#ddc090', strokeThickness: 1,
     }).setOrigin(0.5));
-    this.stageOverlay.add(this.add.text(400, py + 34, '↑ ↓ Arrow Keys  •  ENTER to confirm  •  ESC to cancel', {
+    this.stageOverlay.add(this.add.text(400, py + 32, '← → ↑ ↓ to navigate  •  ENTER to confirm  •  ESC to cancel', {
       fontFamily: 'monospace', fontSize: '8px', color: '#8b6b3d',
     }).setOrigin(0.5));
+
+    // --- Shared progress dot bar (Mario World style) ---
+    const pm2 = new ProgressManager();
+    const highestStage = pm2.getHighestStage(cls.id);
+    const dotCount = STAGE_CHECKPOINTS.length;  // always 5 total stages
+    const dotSpacing = Math.floor((pw - 40) / (dotCount - 1));
+    const dotBarY = py + 66;
+
+    for (let d = 0; d < dotCount; d++) {
+      const dotX = px + 20 + d * dotSpacing;
+      const dot = this.add.graphics();
+      const isUnlocked = d <= highestStage;
+      // Filled (green) if unlocked, grey if locked; ring outline on the current selection's stage
+      dot.fillStyle(isUnlocked ? 0x44cc44 : 0x444444, 1);
+      dot.fillCircle(dotX, dotBarY, isUnlocked ? 6 : 4);
+      if (d < dotCount - 1) {
+        const lineColor = (d < highestStage) ? 0x44cc44 : 0x444444;
+        dot.lineStyle(2, lineColor, 1);
+        dot.beginPath();
+        dot.moveTo(dotX + 6, dotBarY);
+        dot.lineTo(dotX + dotSpacing - 6, dotBarY);
+        dot.strokePath();
+      }
+      // Stage number below dot
+      this.stageOverlay!.add(dot);
+      // Tiny label below each dot
+      const dotLabel = ['Start', 'Frost', 'Verdant', 'Forge', 'Helheim'][d] ?? '';
+      this.stageOverlay!.add(this.add.text(dotX, dotBarY + 10, dotLabel, {
+        fontFamily: 'monospace', fontSize: '6px', color: isUnlocked ? '#44aa44' : '#555555',
+      }).setOrigin(0.5));
+    }
+
+    // Arrow pointing to selected stage dot
+    const selectedStageForDot = checkpoints[this.stageSelectedIndex]?.stageIndex ?? 0;
+    const dotArrowIdx = selectedStageForDot === 99 ? highestStage : Math.min(selectedStageForDot, dotCount - 1);
+    const arrowX = px + 20 + dotArrowIdx * dotSpacing;
+    const arrowGfx = this.add.graphics();
+    arrowGfx.fillStyle(0xff4444, 1);
+    arrowGfx.fillTriangle(arrowX - 4, dotBarY - 12, arrowX + 4, dotBarY - 12, arrowX, dotBarY - 7);
+    this.stageOverlay!.add(arrowGfx);
 
     // Build stage cards
     for (let i = 0; i < checkpoints.length; i++) {
       const cp = checkpoints[i];
-      const cardX = px + 14, cardY = py + 54 + i * 56;
+      const cardX = px + 14, cardY = py + 90 + i * 56;
       const cardW = pw - 28, cardH = 48;
 
       const card = this.add.container(0, 0);
@@ -452,41 +505,32 @@ export class CharacterSelectScene extends Phaser.Scene {
       bg.strokeRect(cardX, cardY, cardW, cardH);
       card.add(bg);
 
-      // Stage dot sequence (Mario World style)
-      const dotCount = STAGE_CHECKPOINTS.length;
-      for (let d = 0; d < dotCount; d++) {
-        const dotX = cardX + 12 + d * 22;
-        const dotY = cardY + 10;
-        const dot = this.add.graphics();
-        const isUnlocked = d < checkpoints.length;
-        const isThis = d === cp.stageIndex;
-        dot.fillStyle(isThis ? 0xff4444 : isUnlocked ? 0x44aa44 : 0x888888);
-        dot.fillCircle(dotX, dotY, 5);
-        if (d < dotCount - 1) {
-          dot.lineStyle(1, isUnlocked && d + 1 < checkpoints.length ? 0x44aa44 : 0x888888);
-          dot.beginPath(); dot.moveTo(dotX + 5, dotY); dot.lineTo(dotX + 17, dotY); dot.strokePath();
-        }
-        card.add(dot);
+      // Selection arrow indicator on left
+      if (isSelected) {
+        const sel = this.add.graphics();
+        sel.fillStyle(0xff4444, 1);
+        sel.fillTriangle(cardX + 6, cardY + 18, cardX + 6, cardY + 30, cardX + 13, cardY + 24);
+        card.add(sel);
       }
 
-      card.add(this.add.text(cardX + 14, cardY + 22, cp.label, {
-        fontFamily: 'monospace', fontSize: '11px',
+      card.add(this.add.text(cardX + 18, cardY + 10, cp.label, {
+        fontFamily: 'monospace', fontSize: '12px', fontStyle: 'bold',
         color: isSelected ? '#3d2410' : '#5c3a1e',
         stroke: isSelected ? '#ffee88' : '#dec9a0', strokeThickness: 1,
       }));
-      card.add(this.add.text(cardX + cardW - 14, cardY + 22, cp.description, {
-        fontFamily: 'monospace', fontSize: '8px', color: '#8b6b3d',
-      }).setOrigin(1, 0.5));
-      card.add(this.add.text(cardX + 14, cardY + 36, `Start at Level ${cp.startLevel}`, {
-        fontFamily: 'monospace', fontSize: '8px', color: '#44aa44',
+      card.add(this.add.text(cardX + 18, cardY + 28, cp.description, {
+        fontFamily: 'monospace', fontSize: '8px', color: '#6b4a28',
       }));
+      card.add(this.add.text(cardX + cardW - 12, cardY + 24, `Lv.${cp.startLevel}`, {
+        fontFamily: 'monospace', fontSize: '10px', color: '#44aa44', fontStyle: 'bold',
+      }).setOrigin(1, 0.5));
 
       // Click to select
       const zone = this.add.zone(cardX + cardW / 2, cardY + cardH / 2, cardW, cardH);
       zone.setInteractive({ useHandCursor: true });
       zone.on('pointerdown', () => {
         this.stageSelectedIndex = i;
-        this.refreshStageCards();
+        this.refreshStageCards(cls);
       });
       zone.on('pointerup', () => {
         if (this.stageSelectedIndex === i) {
@@ -499,22 +543,24 @@ export class CharacterSelectScene extends Phaser.Scene {
       this.stageCards.push(card);
     }
 
-    // Keyboard navigation
+    // Keyboard navigation — support UP/DOWN and LEFT/RIGHT
     if (this.input.keyboard) {
-      const upKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
-      const downKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
+      const navigate = (dir: number) => {
+        this.stageSelectedIndex = Math.max(0, Math.min(this.stageCheckpoints.length - 1, this.stageSelectedIndex + dir));
+        this.refreshStageCards(cls);
+      };
+      const upKey    = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
+      const downKey  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
+      const leftKey  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT);
+      const rightKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT);
       const enterKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ENTER);
-      const escKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
-      this.stageKeys = [upKey, downKey, enterKey, escKey];
+      const escKey   = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
+      this.stageKeys = [upKey, downKey, leftKey, rightKey, enterKey, escKey];
 
-      upKey.on('down', () => {
-        this.stageSelectedIndex = Math.max(0, this.stageSelectedIndex - 1);
-        this.refreshStageCards();
-      });
-      downKey.on('down', () => {
-        this.stageSelectedIndex = Math.min(this.stageCheckpoints.length - 1, this.stageSelectedIndex + 1);
-        this.refreshStageCards();
-      });
+      upKey.on('down',    () => navigate(-1));
+      downKey.on('down',  () => navigate(1));
+      leftKey.on('down',  () => navigate(-1));
+      rightKey.on('down', () => navigate(1));
       enterKey.on('down', () => this.confirmStageAndLaunch(cls));
       escKey.on('down', () => {
         this.stageOverlay?.destroy();
@@ -525,13 +571,12 @@ export class CharacterSelectScene extends Phaser.Scene {
     }
   }
 
-  private refreshStageCards(): void {
-    // Rebuild the overlay with the new selection — cheapest approach
+  private refreshStageCards(cls?: ClassDef): void {
     if (!this.stageOverlay) return;
-    const cls = this.classes[this.selectedIndex];
+    const c = cls ?? this.classes[this.selectedIndex];
     this.stageOverlay.destroy();
     this.stageOverlay = null;
-    this.showStageSelect(cls, this.stageCheckpoints);
+    this.showStageSelect(c, this.stageCheckpoints);
   }
 
   private confirmStageAndLaunch(cls: ClassDef): void {

@@ -181,20 +181,13 @@ export class PlayerController {
 
   /** Grant XP and handle level ups */
   grantXP(amount: number): void {
-    if (this.level >= MAX_LEVEL) return;
-
     this.xp += amount;
 
-    while (this.xp >= this.xpToNext && this.level < MAX_LEVEL) {
+    while (this.xp >= this.xpToNext) {
       this.xp -= this.xpToNext;
       this.level++;
       this.xpToNext = xpForLevel(this.level + 1) - xpForLevel(this.level);
       this.onLevelUp();
-    }
-
-    if (this.level >= MAX_LEVEL) {
-      this.xp = 0;
-      this.xpToNext = 0;
     }
   }
 

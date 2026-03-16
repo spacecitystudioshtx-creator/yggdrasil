@@ -138,7 +138,7 @@ export class UIScene extends Phaser.Scene {
     // --- Controls hint (always visible at bottom) ---
     this.add.text(
       this.cameras.main.width / 2, this.cameras.main.height - 8,
-      'WASD: Move  |  Click: Shoot  |  Space: Ability  |  M: Map  |  R: Nexus',
+      'WASD: Move  |  Click: Shoot  |  Space: Ability  |  P: Portal  |  M: Map',
       { fontFamily: 'monospace', fontSize: '9px', color: '#000000', fontStyle: 'bold',
         stroke: '#ffffff', strokeThickness: 2, backgroundColor: '#ffffffaa',
         padding: { left: 4, right: 4, top: 1, bottom: 1 } },
@@ -160,14 +160,26 @@ export class UIScene extends Phaser.Scene {
     gs.events.on('notification', this.showNotification, this);
     gs.events.on('minimapUpdate', this.onMinimapUpdate, this);
 
-    const ds = this.scene.get('DungeonScene');
-    if (ds) {
+    // DungeonScene's event emitter is wiped on each scene.start() restart.
+    // Use game.events as a persistent bus: DungeonScene emits 'dungeonSceneReady'
+    // at the end of create(), triggering us to re-wire listeners each run.
+    const wireDungeonScene = () => {
+      const ds = this.scene.get('DungeonScene');
+      if (!ds) return;
+      // Remove stale listeners before re-adding to avoid duplicates
+      ds.events.off('playerUpdate', this.onPlayerUpdate, this);
+      ds.events.off('playerDeath', this.onDeath, this);
+      ds.events.off('playerRespawn', this.onRespawn, this);
+      ds.events.off('notification', this.showNotification, this);
+      ds.events.off('minimapUpdate', this.onMinimapUpdate, this);
       ds.events.on('playerUpdate', this.onPlayerUpdate, this);
       ds.events.on('playerDeath', this.onDeath, this);
       ds.events.on('playerRespawn', this.onRespawn, this);
       ds.events.on('notification', this.showNotification, this);
       ds.events.on('minimapUpdate', this.onMinimapUpdate, this);
-    }
+    };
+    wireDungeonScene(); // wire now if DungeonScene already exists in registry
+    this.game.events.on('dungeonSceneReady', wireDungeonScene, this);
 
     const ns = this.scene.get('NexusScene');
     if (ns) {
@@ -334,10 +346,10 @@ export class UIScene extends Phaser.Scene {
         // Show progress bar style for non-done with numeric goals
         const showBar = !o.done && o.target > 1;
         const progText = showBar ? ` (${o.current}/${o.target})` : '';
-        const c = o.done ? '#22aa22' : '#111111';
+        const c = o.done ? '#22aa22' : '#000000';
         const ot = this.add.text(x + 6, y + 2, `${ch} ${o.desc}${progText}`, {
           fontFamily: 'monospace', fontSize: '10px', color: c, fontStyle: 'bold',
-          stroke: '#ffffff', strokeThickness: 1,
+          stroke: '#ffffff', strokeThickness: 3,
           wordWrap: { width: 190 },
         }).setDepth(101);
         this.questTexts.push(ot);

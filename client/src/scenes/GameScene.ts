@@ -5,13 +5,9 @@ import { EnemyManager } from '../systems/EnemyManager';
 import { WorldRenderer } from '../systems/WorldRenderer';
 import { InputManager } from '../systems/InputManager';
 import { CameraController } from '../systems/CameraController';
-import { InventoryManager } from '../systems/InventoryManager';
-import { LootManager } from '../systems/LootManager';
-import { TILE_SIZE, REALM_SIZE, ItemType } from '@yggdrasil/shared';
-import { getItem } from '../data/ItemDatabase';
+import { TILE_SIZE, REALM_SIZE } from '@yggdrasil/shared';
 import { getDungeon, DungeonDef } from '../data/DungeonDatabase';
 import { getClass, ClassDef } from '../data/ClassDatabase';
-import { FameManager } from '../systems/FameManager';
 import { AbilitySystem } from '../systems/AbilitySystem';
 import { ProgressManager, PlayerRunState } from '../systems/ProgressManager';
 import { MusicManager } from '../systems/MusicManager';
@@ -31,8 +27,6 @@ export class GameScene extends Phaser.Scene {
   projectileManager!: ProjectileManager;
   enemyManager!: EnemyManager;
   cameraController!: CameraController;
-  inventoryManager!: InventoryManager;
-  lootManager!: LootManager;
 
   // Player reference (Phaser sprite)
   player!: Phaser.Physics.Arcade.Sprite;
@@ -48,9 +42,6 @@ export class GameScene extends Phaser.Scene {
 
   // Ability system (space bar)
   abilitySystem!: AbilitySystem;
-
-  // Fame system (permadeath)
-  fameManager!: FameManager;
 
   // Progress system (per-class checkpoints)
   progressManager!: ProgressManager;
@@ -222,33 +213,7 @@ export class GameScene extends Phaser.Scene {
     // Hide default cursor
     this.input.setDefaultCursor('none');
 
-    // ==========================================
-    // 12. Inventory and Loot systems
-    // ==========================================
-
-    // 12a. Inventory manager
-    this.inventoryManager = new InventoryManager();
-
-    // Give player starting gear based on class
-    if (this.classDef) {
-      const gear = this.classDef.startingGear;
-      this.inventoryManager.equipStartingGear(gear.weapon, gear.ability, gear.armor, gear.ring);
-    } else {
-      this.inventoryManager.equipStartingGear('sword_t0', 'ability_shield_t0', 'armor_heavy_t0', 'ring_t0');
-    }
-
-    // Starting potions
-    this.inventoryManager.addItem('potion_hp_small', 3);
-    this.inventoryManager.addItem('potion_mp_small', 2);
-
-    // 12b. Loot manager
-    this.lootManager = new LootManager(this);
-
-    // No loot bags spawn anymore — instant heals on kill.
-    // LootManager kept for possible future use; pickup callback is no-op.
-    this.lootManager.onPickup((_items) => {});
-
-    // 12c. Spawn dormant Fenrir near player start — a warning of what's coming
+    // 12. Spawn dormant Fenrir near player start — a warning of what's coming
     this.spawnDormantFenrir();
 
     // 13. Dungeon portal group
@@ -257,16 +222,23 @@ export class GameScene extends Phaser.Scene {
       runChildUpdate: false,
     });
 
-    // 14. Listen for return from dungeon
+    // 14. Listen for return from dungeon.
+    // Primary path: DungeonScene passes return data via scene.wake(key, data),
+    // which fires the built-in Phaser 'wake' event with the data attached.
+    this.events.on('wake', (_sys: any, data: any) => {
+      // Fade in so the scene appears smoothly after the dungeon's black fade-out
+      this.cameras.main.fadeIn(400, 0, 0, 0);
+      if (data && data.level !== undefined) {
+        this.onReturnFromDungeon(data);
+      }
+    }, this);
+    // Fallback: keep the custom event for any edge case where GameScene is restarted.
     this.events.on('returnFromDungeon', this.onReturnFromDungeon, this);
 
     // Listen for level-up events to gate dungeon portals
     this.events.on('playerLevelUp', this.onPlayerLevelUp, this);
 
-    // 15. Fame manager (permadeath tracking)
-    this.fameManager = new FameManager();
-
-    // 15b. Progress manager (per-class checkpoints)
+    // 15. Progress manager (per-class checkpoints)
     this.progressManager = new ProgressManager();
 
     // Apply checkpoint start stage — boost player level and pre-unlock dungeon portals
@@ -307,7 +279,6 @@ export class GameScene extends Phaser.Scene {
     this.projectileManager.update(dt);
     this.enemyManager.update(dt, this.player.x, this.player.y);
     this.cameraController.update(dt);
-    this.lootManager.update(dt, this.player.x, this.player.y);
     this.abilitySystem.update(dt);
 
     // Handle shooting
@@ -326,10 +297,9 @@ export class GameScene extends Phaser.Scene {
       if (used) this.musicManager?.playSFX('sfx_ability');
     }
 
-    // R key: return to Nexus (Asgard)
-    if (this.inputManager.isNexusPressed() && !this.playerController.isDead) {
-      this.goToNexus();
-      return;
+    // P key: pull current portal to player (or show status)
+    if (this.inputManager.isPortalKeyPressed() && !this.playerController.isDead) {
+      this.onPortalKeyPressed();
     }
 
     // Check portal proximity and lifetime
@@ -352,7 +322,6 @@ export class GameScene extends Phaser.Scene {
       level: this.playerController.level,
       xp: this.playerController.xp,
       xpToNext: this.playerController.xpToNext,
-      gold: this.inventoryManager.gold,
       abilities: this.abilitySystem.getAbilityInfo(),
     });
 
@@ -411,7 +380,6 @@ export class GameScene extends Phaser.Scene {
       const level = enemy.getData('level') ?? 1;
       const xpReward = level * 15;
       this.playerController.grantXP(xpReward);
-      this.fameManager.reportKill();
 
       // SFX: enemy death / kill
       this.musicManager?.playSFX('sfx_hit_enemy');
@@ -525,29 +493,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ========================================================================
-  // NEXUS (ASGARD HUB) — R KEY
+  // PORTAL KEY (P) — pull current dungeon portal to player
   // ========================================================================
 
-  /** Return to Asgard hub — pass full player state to preserve it */
-  private goToNexus(): void {
-    this.events.emit('notification', 'Returning to Asgard...', '#ddaa44');
-    this.clearAllPortals();
-
-    this.cameras.main.fadeOut(300, 0, 0, 0);
-    this.time.delayedCall(300, () => {
-      this.scene.stop('GameScene');
-      this.scene.start('NexusScene', {
-        classId: this.classId,
-        playerLevel: this.playerController.level,
-        hp: this.playerController.hp,
-        maxHp: this.playerController.maxHp,
-        mp: this.playerController.mp,
-        maxMp: this.playerController.maxMp,
-        xp: this.playerController.xp,
-        xpToNext: this.playerController.xpToNext,
-        gold: this.inventoryManager.gold,
-      });
-    });
+  private onPortalKeyPressed(): void {
+    const level = this.playerController.level;
+    if (level < 5) {
+      this.events.emit('notification', 'Reach Level 5 to unlock dungeons!', '#ff8800');
+      return;
+    }
+    if (this.activePortals.length === 0) {
+      this.events.emit('notification', 'No portal available. Level up to unlock the next dungeon!', '#ff8800');
+      return;
+    }
+    // Teleport the portal right next to the player
+    const p = this.activePortals[0];
+    const newX = this.player.x + 50;
+    const newY = this.player.y;
+    p.sprite.setPosition(newX, newY);
+    p.label.setPosition(newX, newY + 18);
+    this.events.emit('notification', `Portal summoned! → ${p.dungeonDef.name}`, '#cc88ff');
   }
 
   // ========================================================================
@@ -695,22 +660,24 @@ export class GameScene extends Phaser.Scene {
 
   /** Handle returning from a dungeon */
   private onReturnFromDungeon(data: {
-    hp: number;
-    mp: number;
-    level: number;
-    xp: number;
-    maxHp?: number;
-    maxMp?: number;
-    xpToNext?: number;
-    dungeonComplete: boolean;
-    completedDungeonId?: string;
+    hp: number; mp: number; level: number; xp: number;
+    maxHp?: number; maxMp?: number; xpToNext?: number;
+    attack?: number; defense?: number; speed?: number;
+    dexterity?: number; vitality?: number; wisdom?: number;
+    dungeonComplete: boolean; completedDungeonId?: string;
   }): void {
-    // Restore player stats from dungeon (including any levels gained inside)
+    // Restore ALL player stats from dungeon so levels gained inside fully carry back
     this.playerController.level = data.level;
     this.playerController.xp = data.xp;
-    if (data.maxHp !== undefined) this.playerController.maxHp = data.maxHp;
-    if (data.maxMp !== undefined) this.playerController.maxMp = data.maxMp;
+    if (data.maxHp    !== undefined) this.playerController.maxHp    = data.maxHp;
+    if (data.maxMp    !== undefined) this.playerController.maxMp    = data.maxMp;
     if (data.xpToNext !== undefined) this.playerController.xpToNext = data.xpToNext;
+    if (data.attack   !== undefined) this.playerController.attack   = data.attack;
+    if (data.defense  !== undefined) this.playerController.defense  = data.defense;
+    if (data.speed    !== undefined) this.playerController.speed    = data.speed;
+    if (data.dexterity !== undefined) this.playerController.dexterity = data.dexterity;
+    if (data.vitality  !== undefined) this.playerController.vitality  = data.vitality;
+    if (data.wisdom    !== undefined) this.playerController.wisdom    = data.wisdom;
     this.playerController.hp = data.hp;
     this.playerController.mp = data.mp;
 
@@ -744,28 +711,23 @@ export class GameScene extends Phaser.Scene {
         if (next) {
           // Remove stale tracking — portal might have been spawned then cleared when entering dungeon
           this.spawnedDungeonPortals.delete(next.dungeonId);
-          this.time.delayedCall(2000, () => {
-            this.spawnDungeonPortalNearPlayer(next.dungeonId);
-            // Save AFTER portal spawns so saved state includes the new portal
-            this.saveRunState();
-            this.emitObjectiveUpdate();
-          });
+          // Spawn immediately so the next dungeon is always available on return
+          this.spawnDungeonPortalNearPlayer(next.dungeonId);
+          this.saveRunState();
+          this.emitObjectiveUpdate();
         } else {
           // All dungeons cleared — apply stat boost for the world boss fight
+          this.events.emit('notification', 'All dungeons cleared!', '#44cc44');
+          this.events.emit('notification', '⚡ Power of Yggdrasil granted!', '#ffdd44');
+          this.events.emit('notification', 'Head to the CENTER of Midgard...', '#ff8800');
+          this.playerController.maxHp = Math.max(this.playerController.maxHp, 500);
+          this.playerController.hp = this.playerController.maxHp;
+          this.playerController.maxMp = Math.max(this.playerController.maxMp, 200);
+          this.playerController.mp = this.playerController.maxMp;
+          this.playerController.attack = Math.max(this.playerController.attack, 45);
+          this.saveRunState();
+          this.emitObjectiveUpdate();
           this.time.delayedCall(2000, () => {
-            this.events.emit('notification', 'All dungeons cleared!', '#44cc44');
-            this.events.emit('notification', '⚡ Power of Yggdrasil granted!', '#ffdd44');
-            this.events.emit('notification', 'Head to the CENTER of Midgard...', '#ff8800');
-            // Stat boost: ensure player is ready for the world boss regardless of level
-            this.playerController.maxHp = Math.max(this.playerController.maxHp, 500);
-            this.playerController.hp = this.playerController.maxHp;
-            this.playerController.maxMp = Math.max(this.playerController.maxMp, 200);
-            this.playerController.mp = this.playerController.maxMp;
-            this.playerController.attack = Math.max(this.playerController.attack, 45);
-            this.saveRunState();
-            this.emitObjectiveUpdate();
-          });
-          this.time.delayedCall(4000, () => {
             this.spawnWorldBoss();
           });
         }
@@ -822,11 +784,11 @@ export class GameScene extends Phaser.Scene {
    * boost their level to the checkpoint's start level and pre-mark
    * all earlier dungeons as already spawned so the right portal appears.
    *
-   * Stage → dungeon portal mapping:
-   *   Stage 1 → verdant_hollows portal (already cleared frostheim)
-   *   Stage 2 → muspelheim_forge portal
-   *   Stage 3 → helheim_sanctum portal
-   *   Stage 4 → awaken Fenrir immediately
+   * Stage → dungeon mapping (stageIndex = number of dungeons already cleared):
+   *   Stage 1 → cleared frostheim → spawn verdant portal
+   *   Stage 2 → cleared frostheim+verdant → spawn muspelheim portal
+   *   Stage 3 → cleared frostheim+verdant+muspelheim → spawn helheim portal
+   *   Stage 4 → all cleared → awaken Fenrir
    */
   private applyStartStage(): void {
     if (this.startStage <= 0) return;
@@ -844,12 +806,13 @@ export class GameScene extends Phaser.Scene {
       this.playerController.mp = this.playerController.maxMp;
     }
 
-    // Mark all dungeons up to the previous stage as already done
-    // so the correct NEXT portal spawns
-    const clearedUpTo = this.startStage - 1; // 0-indexed into DUNGEON_PROGRESSION
-    for (let i = 0; i < clearedUpTo && i < this.DUNGEON_PROGRESSION.length; i++) {
+    // stageIndex = number of dungeons already cleared
+    // Mark exactly those dungeons as done so the next one spawns a portal
+    const numCleared = this.startStage; // e.g. stage 1 = cleared 1 dungeon (frostheim)
+    for (let i = 0; i < numCleared && i < this.DUNGEON_PROGRESSION.length; i++) {
       this.spawnedDungeonPortals.add(this.DUNGEON_PROGRESSION[i].dungeonId);
     }
+    this.lastCompletedDungeonIdx = numCleared - 1;
 
     if (this.startStage >= 4) {
       // All dungeons cleared — awaken Fenrir right away
@@ -858,11 +821,12 @@ export class GameScene extends Phaser.Scene {
         this.spawnWorldBoss();
       });
     } else {
-      // Spawn the correct next portal near the player
-      const nextPortal = this.DUNGEON_PROGRESSION[clearedUpTo];
+      // Spawn the correct next portal (index = numCleared)
+      const nextPortal = this.DUNGEON_PROGRESSION[numCleared];
       if (nextPortal && !this.spawnedDungeonPortals.has(nextPortal.dungeonId)) {
         this.time.delayedCall(1000, () => {
           this.spawnDungeonPortalNearPlayer(nextPortal.dungeonId);
+          this.emitObjectiveUpdate();
         });
       }
     }
@@ -906,8 +870,9 @@ export class GameScene extends Phaser.Scene {
     // Don't restore a level-1 save (nothing meaningful to restore)
     if (state.level <= 1) return;
 
-    // If a checkpoint already boosted us to a higher level than the saved state, skip
-    if (this.startStage > 0 && this.playerController.level >= state.level) return;
+    // If a named checkpoint was selected (startStage > 0), clearRunState() was already
+    // called in CharacterSelectScene — no run state should exist.  Skip anyway to be safe.
+    if (this.startStage > 0) return;
 
     // Only restore if the saved level is higher than what we have now
     // (checkpoint boost may have already set a level; respect whichever is higher)
@@ -983,39 +948,33 @@ export class GameScene extends Phaser.Scene {
     const level = this.playerController?.level ?? 1;
     const objectives: { desc: string; current: number; target: number; done: boolean }[] = [];
 
-    // Show any active dungeon portals (highest priority)
-    for (const id of this.spawnedDungeonPortals) {
-      const d = getDungeon(id);
-      if (d) {
+    // Priority 1: a portal is currently visible — tell player to enter it
+    if (this.activePortals.length > 0) {
+      const p = this.activePortals[0];
+      objectives.push({
+        desc: `Enter portal → ${p.dungeonDef.name}  [Press P]`,
+        current: 1, target: 1, done: false,
+      });
+    } else {
+      // Priority 2: find the next dungeon the player hasn't cleared yet
+      const nextEntry = this.DUNGEON_PROGRESSION.find(e => !this.spawnedDungeonPortals.has(e.dungeonId));
+      if (nextEntry) {
+        const d = getDungeon(nextEntry.dungeonId);
+        if (d) {
+          objectives.push({
+            desc: `Reach Lv.${nextEntry.level} → ${d.name}`,
+            current: level,
+            target: nextEntry.level,
+            done: level >= nextEntry.level,
+          });
+        }
+      } else {
+        // All dungeons cleared
         objectives.push({
-          desc: `Portal Active: ${d.name}!`,
+          desc: 'Seek the World Boss at the center!',
           current: 1, target: 1, done: false,
         });
       }
-    }
-
-    // Show next level goal if no portal is active for it
-    for (const entry of this.DUNGEON_PROGRESSION) {
-      if (this.spawnedDungeonPortals.has(entry.dungeonId)) continue;
-      if (level < entry.level) {
-        const d = getDungeon(entry.dungeonId);
-        if (d) {
-          objectives.push({
-            desc: `Kill to Lv.${entry.level} \u2192 ${d.name}`,
-            current: level, target: entry.level, done: false,
-          });
-          break; // only show the next immediate goal
-        }
-      }
-    }
-
-    // If all portals done and no next goal
-    if (objectives.length === 0) {
-      const allCleared = this.lastCompletedDungeonIdx >= this.DUNGEON_PROGRESSION.length - 1;
-      objectives.push({
-        desc: allCleared ? 'Seek the World Boss at center!' : 'Clear all dungeons to face Fenrir',
-        current: 1, target: 1, done: allCleared,
-      });
     }
 
     this.events.emit('questUpdate', [{ name: 'Objectives', objectives }]);

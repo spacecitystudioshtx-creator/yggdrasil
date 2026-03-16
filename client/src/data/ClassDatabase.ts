@@ -98,7 +98,7 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
     armorType: ArmorType.Heavy,
     baseStats: {
       maxHp: 320, maxMp: 100,
-      attack: 14, defense: 10,
+      attack: 18, defense: 10,
       speed: 20, dexterity: 20,
       vitality: 35, wisdom: 15,
     },
@@ -127,8 +127,8 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       projectileSpeed: 280,
       projectileLifetime: 350,
       projectileTint: 0x88aacc,
-      fireRateMultiplier: 0.7,
-      damageMultiplier: 0.7,
+      fireRateMultiplier: 0.70,
+      damageMultiplier: 0.45,
       projectileSize: 1.5,
     },
     spriteTint: 0x6688bb, // steel blue
@@ -145,13 +145,13 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
     armorType: ArmorType.Robe,
     baseStats: {
       maxHp: 150, maxMp: 200,
-      attack: 25, defense: 5,
+      attack: 20, defense: 5,
       speed: 25, dexterity: 25,
       vitality: 15, wisdom: 30,
     },
     levelGains: {
       maxHp: 15, maxMp: 10,
-      attack: 2, defense: 0,
+      attack: 1, defense: 0,
       speed: 1, dexterity: 1,
       vitality: 1, wisdom: 2,
     },
@@ -167,15 +167,15 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       armor: 'armor_robe_t0',
       ring: 'ring_t0',
     },
-    // Runemaster: 1 slow, long-range, very high-damage arcane bolt (mana-gated, no timer)
+    // Runemaster: 1 slow, long-range, high-damage arcane bolt (mana-gated, no timer)
     weaponProfile: {
       projectileCount: 1,
       spreadAngle: 0,
       projectileSpeed: 350,
       projectileLifetime: 1800,
       projectileTint: 0xaa44ff,
-      fireRateMultiplier: 0.7,
-      damageMultiplier: 2.2,
+      fireRateMultiplier: 0.75,
+      damageMultiplier: 2.0,
       projectileSize: 1.5,
     },
     spriteTint: 0xaa44ff, // purple
@@ -221,8 +221,8 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       projectileSpeed: 380,
       projectileLifetime: 900,
       projectileTint: 0xffdd44,
-      fireRateMultiplier: 1.0,
-      damageMultiplier: 0.9,
+      fireRateMultiplier: 0.90,
+      damageMultiplier: 0.55,
       projectileSize: 1.2,
     },
     spriteTint: 0xffdd44, // gold
@@ -239,13 +239,13 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
     armorType: ArmorType.Light,
     baseStats: {
       maxHp: 190, maxMp: 80,
-      attack: 38, defense: 2,
+      attack: 20, defense: 2,
       speed: 25, dexterity: 30,
       vitality: 20, wisdom: 10,
     },
     levelGains: {
       maxHp: 18, maxMp: 3,
-      attack: 3, defense: 0,
+      attack: 2, defense: 0,
       speed: 1, dexterity: 2,
       vitality: 1, wisdom: 0,
     },
@@ -268,8 +268,8 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       projectileSpeed: 420,
       projectileLifetime: 500,
       projectileTint: 0xcc3333,
-      fireRateMultiplier: 1.5,
-      damageMultiplier: 1.4,
+      fireRateMultiplier: 1.0,
+      damageMultiplier: 0.50,
       projectileSize: 1.4,
     },
     spriteTint: 0xcc3333, // red
@@ -286,7 +286,7 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
     armorType: ArmorType.Robe,
     baseStats: {
       maxHp: 170, maxMp: 180,
-      attack: 12, defense: 5,
+      attack: 18, defense: 5,
       speed: 25, dexterity: 20,
       vitality: 20, wisdom: 35,
     },
@@ -308,15 +308,15 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       armor: 'armor_robe_t0',
       ring: 'ring_t0',
     },
-    // Skald: 1 slow tracking wand bolt, moderate damage, long range
+    // Skald: 1 reliable wand bolt, moderate damage, long range
     weaponProfile: {
       projectileCount: 1,
       spreadAngle: 0,
       projectileSpeed: 300,
       projectileLifetime: 2000,
       projectileTint: 0x44ccaa,
-      fireRateMultiplier: 0.9,
-      damageMultiplier: 1.1,
+      fireRateMultiplier: 1.0,
+      damageMultiplier: 1.5,
       projectileSize: 1.0,
     },
     spriteTint: 0x44ccaa, // teal
@@ -355,14 +355,14 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       armor: 'armor_light_t0',
       ring: 'ring_t0',
     },
-    // Huntsman: 1 fast, long-range arrow, rapid fire — no multi-bullet penalty
+    // Huntsman: 1 fast, long-range arrow, rapid fire
     weaponProfile: {
       projectileCount: 1,
       spreadAngle: 0,
       projectileSpeed: 520,
       projectileLifetime: 1500,
       projectileTint: 0x88aa44,
-      fireRateMultiplier: 1.6,
+      fireRateMultiplier: 1.4,
       damageMultiplier: 1.1,
       projectileSize: 0.8,
     },
