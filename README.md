@@ -9,10 +9,7 @@ Built with **Phaser 3**, **TypeScript**, and **Vite**.
 ## Quick Start
 
 ```bash
-# Install dependencies
 npm install
-
-# Start the dev server
 cd client && npm run dev
 ```
 
@@ -28,7 +25,8 @@ Open `http://localhost:5173` in your browser.
 | **Mouse** | Aim |
 | **Left Click** | Shoot |
 | **Space** | Use special ability |
-| **M** | Toggle World Map overlay |
+| **M** | Toggle world map overlay |
+| **P** | Force-exit dungeon (emergency) |
 
 ---
 
@@ -55,8 +53,7 @@ yggdrasil/
 ### Opening Lore Crawl
 - Norse mythology intro with scrolling text (Star Wars–style crawl)
 - Sets the stage: Ragnarök approaches, Odin calls mortal heroes
-- Skippable after 1.5 seconds by pressing any key or clicking
-- Smooth fade transition to character select
+- Skippable after 1.5 seconds; smooth fade transition to character select
 - Overworld music begins on the lore screen
 
 ---
@@ -73,45 +70,35 @@ yggdrasil/
 
 ### 6 Classes with Unique Combat Profiles
 
-| Class | Combat Style | Signature Ability |
+| Class | Style | Ability |
 |---|---|---|
-| **Viking** | 5-bullet melee burst, tanky | **Shield Wall** — halve all damage for 5 s |
-| **Runemaster** | High single-shot damage, slow fire | **Rune Blast** — erupt 12 arcane bolts in a ring |
+| **Viking** | 5-bullet burst, high defense | **Shield Wall** — halve all damage for 5s |
+| **Runemaster** | High single-shot damage, slow fire | **Rune Blast** — 12 arcane bolts in a ring |
 | **Valkyrie** | 3-bullet balanced hybrid | **Divine Touch** — restore 80 HP instantly |
-| **Berserker** | 3-bullet glass cannon, fastest burst | **Frenzy** — +50% fire rate for 5 s |
-| **Skald** | Long-range support caster | **Healing Chant** — restore 100 HP (costs MP) |
+| **Berserker** | 3-bullet glass cannon | **Frenzy** — +50% fire rate for 5s |
+| **Skald** | Long-range support caster | **Healing Chant** — restore 100 HP (MP cost) |
 | **Huntsman** | Single-shot, fastest fire rate | **Arrow Volley** — 8-arrow wide cone burst |
 
-- Class-specific projectile speed, lifetime, tint, size, and damage multipliers
-- Class-specific base stats, per-level gains, and stat caps
+- Class-specific projectile speed, tint, spread, and damage multipliers
+- Balanced DPS across all classes: per-bullet damage within 30% of the strongest class
 - Character select with full stat previews, ability info, and lore
 
 ---
 
-### Ability System (Space Bar)
-- 1 signature ability per class, available from level 1
-- Each ability has its own cooldown and/or MP cost
-- HUD widget at bottom-center: class-colored border when ready, dark sweep on cooldown
-- **Cooldown-gated**: Viking (Shield Wall), Berserker (Frenzy), Valkyrie (Divine Touch), Huntsman (Arrow Volley)
-- **MP-gated**: Runemaster (Rune Blast), Skald (Healing Chant) — no cooldown, purely mana-limited
+### Ability System
+- 1 signature ability per class (Space Bar), available from level 1
+- **Cooldown-gated**: Viking, Berserker, Valkyrie, Huntsman
+- **MP-gated**: Runemaster, Skald — no cooldown timer, purely mana-limited
+- HUD widget: class-colored border when ready, dark sweep on cooldown
 
 ---
 
 ### Combat
 - Object-pooled projectile system (200 player, 500 enemy)
 - 7 enemy bullet pattern types: Aimed, Radial, Spiral, Shotgun, Wall, Star, Burst
-- Defense formula: `damage_taken = max(damage − defense, damage × 0.15)` — defense never trivializes damage
-- Multi-bullet penalty: classes with 3–5 projectiles deal 50% damage per bullet (balanced DPS)
-- Floating damage numbers, invincibility frames, class tint preserved through hit flashes
+- Defense formula: `damage_taken = max(damage − defense, damage × 0.15)`
+- Floating damage numbers, invincibility frames on hit, class tint preserved through flashes
 - Projectiles blocked by dungeon walls
-
----
-
-### Instant Heal Drops (no inventory)
-- 50% chance of an instant heal (+8% max HP) on every enemy kill
-- Green sparkle effect + floating `+HP` text at kill site
-- Boss kill fully restores HP and MP
-- No loot bags, no inventory panel — streamlined for fast action
 
 ---
 
@@ -120,50 +107,49 @@ yggdrasil/
 - AI state machine: wander → aggro → chase → attack
 - Stats scale with biome difficulty
 - Health bars shown on damaged enemies
-- Despawn when out of range
 
 ---
 
 ### Dungeons (Four Realms)
 
-| Dungeon | Unlock Level | Difficulty | Theme |
+| Dungeon | Unlock | Difficulty | Theme |
 |---|---|---|---|
-| **Frostheim Caverns** | Lv 5 | 3 | Ice blue, Frost Warden boss |
+| **Frostheim Caverns** | Lv 5 | 3 | Ice blue, Hrimthursar boss |
 | **Verdant Hollows** | Lv 6 (after Frostheim) | 5 | Green, Thornwarden boss |
 | **Muspelheim Forge** | Lv 8 (after Verdant) | 8 | Orange flame, Ember Tyrant boss |
-| **Helheim Sanctum** | Lv 10 (after Muspelheim) | 10 | Purple, Hel herself |
+| **Helheim Sanctum** | Lv 10 (after Muspelheim) | 10 | Void purple, Hel herself |
 
 - Procedural snake-path room generation with varying room sizes
-- 3–5 enemies per room; idle until player enters, then chase until dead
-- Multi-phase boss fights with Norse dialogue and escalating bullet patterns
-- Boss health bar lazy-loads when player approaches the boss room
-- Per-dungeon music track that switches to boss theme on approach
-- Full HP/MP restore on boss kill
-- Exit portal spawns on boss defeat — walk into it to return to Midgard
-- Portal re-spawns correctly after browser refresh (exact portal state is persisted)
+- 3–5 enemies per room; idle until player enters, then aggro
+- **Multi-phase boss fights**: phases escalate at 60% and 25% HP with new bullet patterns and dialogue
+- **Boss awakening system**: boss spawns dormant (ghost-like pulse) and dramatically awakens when the player approaches — scale pop, white flash, full alpha
+- Boss health bar and boss music both trigger on approach (distance-based, not room-bounds)
+- Full HP/MP restore on boss kill; exit portal always spawns on completion
+- Per-dungeon music track; boss theme switches on approach
 
 ---
 
 ### Progression & Persistence
 
 #### Leveling
-- XP and leveling **1–30** with class-specific stat gains per level
-- Quadratic XP curve (fast early levels, steady pace to cap)
-- Live **Objective Tracker** (top-right HUD): shows the next dungeon goal and current level progress
+- XP and leveling with no cap (uncapped, quadratic XP curve)
+- Class-specific stat gains per level
+- Live **Objective Tracker** (top-right HUD): shows next dungeon goal and current level progress
 
 #### Save System
-- **Mid-run state persists across browser refresh** (level, XP, HP, MP, spawned portals, dungeon progress)
+- **Mid-run state persists across browser refresh** (level, XP, HP, MP, spawned portals)
 - Dungeon completion checkpoints saved per class
 
-#### Stage Select (Character Select screen)
-- `► Continue (Lv.N)` — resume your exact saved run at the level and HP you left off
-- `Midgard (Fresh Start)` — start from level 1
-- Unlocked named checkpoints (e.g. "Frostheim Cleared") for fast travel to later stages
+#### Stage Select (Mario World–style)
+- Dot progress bar at top showing unlocked stages (green = cleared, grey = locked)
+- **`► Continue (Lv.N)`** — resume your exact saved run
+- **`Midgard (Fresh Start)`** — wipe saved run and start from level 1
+- Named checkpoints for fast-travel to later stages (e.g. "Frostheim Cleared → Lv.6")
+- Single-click to confirm; ← → ↑ ↓ arrows all navigate
 
 #### Respawn
-- **No permadeath** — on death, a 3-second countdown plays and you respawn at your last spawn point
-- All XP, level, and progress is kept on death
-- Run state is re-saved on respawn so browser refresh is safe even after dying
+- **No permadeath** — 3-second countdown on death, respawn at last spawn point
+- All XP, levels, and progress kept on death
 
 #### End Game
 - After all 4 dungeons cleared: stat boost (HP, MP, Attack raised to Fenrir-ready levels)
@@ -172,74 +158,58 @@ yggdrasil/
 ---
 
 ### Audio
-- 4 dungeon music tracks (one per realm), plus overworld and boss themes:
-  - `music_overworld` — lute + flute melody, Scandinavian folk
-  - `music_dungeon_frost` — cold ambient, icy strings
-  - `music_dungeon_verdant` — nature drone, deep forest
-  - `music_dungeon_muspelheim` — forge percussion, war drums *(reference difficulty track)*
-  - `music_dungeon_helheim` — dark Norse horns, ominous bass
-  - `music_boss` — tribal Viking percussion, intensifying layers
-- Music fades smoothly between scenes; boss track triggers on room approach
+- 4 dungeon music tracks (one per realm), overworld, and boss themes
+- Music fades smoothly between scenes; boss track triggers on approach
 - 6 SFX: ability use, enemy hit, player hit, heal, level-up, portal enter
 
-> **Generating custom tracks:** run `ELEVENLABS_API_KEY=xxx ./generate-dungeon-audio.sh` (ElevenLabs API key required)
+> **Generating custom tracks:** run `ELEVENLABS_API_KEY=xxx ./generate-dungeon-audio.sh`
 
 ---
 
-### UI & Readability
-- Warm earth-tone palette: wooden panel borders, parchment interiors
-- HP / MP / XP bars — bold white text with black stroke for maximum legibility
-- Level display — gold bold text with black stroke
-- **Objective Tracker** (top-right) — live dungeon progression goals ("▶ Kill to Lv.5 → Frostheim Caverns")
-- Ability widget (bottom-center) — class-colored when ready, dark sweep on cooldown
-- Notification toasts — bold 14px with heavy stroke
-- World map overlay (M key) with biome visualization and portal markers
-- Character select: full stat bars, lore panel, and ability detail
+## Known Working Features
+
+- ✅ Lore scroll → Character Select → Game loop
+- ✅ All 6 classes with unique stats, fire rates, and ability behavior
+- ✅ Damage balanced: per-bullet damage within ~30% across all classes
+- ✅ Stage select: dot progress bar, single-click confirm, all arrow keys navigate
+- ✅ Continue / Fresh Start / Checkpoint options all launch correctly
+- ✅ Respawn on death — all progress kept, no permadeath
+- ✅ Progress persists across browser refresh (mid-run state)
+- ✅ Boss multi-phase transitions (Awakening → Phase 2 → Phase 3)
+- ✅ Boss dormant/awakening system with entrance animation
+- ✅ Boss phase patterns escalate at 60% and 25% HP (fixed backward-loop bug)
+- ✅ Boss hit feedback: SFX, white flash, damage numbers
+- ✅ Per-dungeon music keys (unique track per realm)
+- ✅ Boss music triggers on approach; full heal on boss kill
+- ✅ Exit portal always force-spawns on completion
+- ✅ Objective tracker (top-right) shows live level goals
+- ✅ Ability widget: class-colored when ready, dark sweep on cooldown
+- ✅ Enemy and boss tints restored after damage flash
+- ✅ XP bar clamped (no visual overflow)
+- ✅ Minimap: dual-scale (biome rings + enemy/portal dots)
 
 ---
 
-## Dungeon Progression Flow
+## 🚧 Known Issues / In Progress
 
-```
-Level 1   → Midgard overworld — kill enemies, gain XP
-Level 5   → Frostheim Caverns portal appears
-Lv 6+     → Verdant Hollows portal appears (after Frostheim cleared)
-Lv 8+     → Muspelheim Forge portal (after Verdant cleared)
-Lv 10+    → Helheim Sanctum portal (after Muspelheim cleared)
-All done  → Stat boost + FENRIR awakens at world center
-Win       → Victory!
-```
+### 🔴 Black screen on dungeon exit (intermittent)
+After defeating a dungeon boss and walking through the exit portal, the screen sometimes goes permanently black instead of transitioning back to the Midgard overworld. Root cause traced to three compounding bugs in `DungeonScene.exitDungeon()`:
 
----
+1. **Failsafe guard was inverted** — the 2s failsafe always fired a second `doSceneTransition` call, corrupting state
+2. **Stop timer was scene-scoped** — `this.time.delayedCall` to stop DungeonScene could be cancelled by Phaser's own scene management, leaving the black faded camera active permanently
+3. **No once-guard on transition** — multiple concurrent callers could wake GameScene twice
 
-## Norse Mythology Mapping
-
-| Game Concept | Norse Equivalent |
-|---|---|
-| Overworld | Midgard (procedural realm) |
-| Starter biome | Frozen Shores |
-| Dungeons | Frostheim, Verdant Hollows, Muspelheim Forge, Helheim |
-| Final Boss | Fenrir, The World Ender |
+**Status:** Core fix applied (global `window.setTimeout` + `hasTransitioned` guard). May still occur in edge cases across all 4 dungeons. Under active investigation.
 
 ---
 
-## Balance
+### 🔴 Final boss (Fenrir) not activating correctly
+After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midgard overworld. Currently:
+- Boss may remain in the dormant ghost state (semi-transparent) if the distance-based awakening trigger doesn't fire
+- Boss attack phases may not escalate as intended in the overworld context (separate code path from dungeon bosses)
+- Hit registration on the final boss needs verification
 
-Key formulas (see `shared/src/constants/balance.ts`):
-
-```ts
-// Damage
-damage_taken = max(baseDamage − defense, baseDamage × 0.15)
-
-// Move speed
-moveSpeed = 80 + speedStat × 1.5
-
-// HP regen
-hpRegen = 1 + vit × 0.12   // per second
-
-// XP curve
-xpForLevel(n) = 50 × (n−1)²   // levels 1–30
-```
+**Status:** Dungeon bosses are confirmed working. Fenrir uses a separate boss system in `GameScene.ts` that requires a dedicated pass to bring it in line with the dungeon boss improvements.
 
 ---
 
@@ -252,29 +222,27 @@ xpForLevel(n) = 50 × (n−1)²   // levels 1–30
 | **Vite** | Fast dev server + build |
 | **npm workspaces** | Monorepo (client / shared) |
 | **ElevenLabs API** | Procedurally generated music and SFX |
-| **localStorage** | Run state, checkpoints, and fame persistence |
+| **localStorage** | Run state, checkpoints, and progress persistence |
 
 ---
 
-## Known Working Features
+## Balance Notes
 
-- ✅ Lore scroll → Character Select → Game loop
-- ✅ All 6 classes with accurate ability names/descriptions matching actual behavior
-- ✅ Stage Select with Continue / Fresh Start / Checkpoint options
-- ✅ Respawn on death (no permadeath) — all progress kept
-- ✅ Progress persists across browser refresh (mid-run state)
-- ✅ Portal re-spawns correctly on refresh after dungeon completion
-- ✅ Objective tracker (top-right) shows live level goals and next dungeon
-- ✅ 4 dungeons with level-gated portals, sequential unlock flow
-- ✅ Per-dungeon music keys (unique track per realm)
-- ✅ Boss health bar (lazy-loads when player enters boss room bounds)
-- ✅ Boss music triggers on approach, not on dungeon entry
-- ✅ Full heal on boss kill; portal always force-spawns on completion
-- ✅ Enemy and boss tints restored after damage flash
-- ✅ XP bar clamped (no visual overflow)
-- ✅ Ability widget: dark on cooldown, class-colored when ready
-- ✅ Bold high-contrast text across all HUD elements
-- ✅ Minimap: dual-scale (biome rings + enemy/portal dots)
+```ts
+// Damage taken
+damage_taken = max(baseDamage − defense, baseDamage × 0.15)
+
+// Move speed
+moveSpeed = 80 + speedStat × 1.5
+
+// HP regen
+hpRegen = 1 + vitality × 0.12   // per second
+
+// XP curve (uncapped)
+xpForLevel(n) = 50 × (n−1)²
+```
+
+Multi-bullet classes (Viking 5×, Berserker 3×, Valkyrie 3×) have their `damageMultiplier` set directly in `ClassDatabase.ts` so per-bullet damage is transparent and easily tunable. No hidden code penalty.
 
 ---
 
