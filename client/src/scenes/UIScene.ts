@@ -52,12 +52,12 @@ export class UIScene extends Phaser.Scene {
   private mapOpen = false;
   private lastMinimapData: any = null;
 
-  // Minimap
+  // Minimap — position varies: bottom-left on desktop, top-right on mobile (avoids joystick overlap)
   private minimapGfx!: Phaser.GameObjects.Graphics;
   private minimapMask!: Phaser.GameObjects.Graphics;
   private minimapQuestTexts: Phaser.GameObjects.Text[] = [];
   private readonly mmRadius = 55;
-  private readonly mmX = 66;
+  private mmX = 66;  // overridden on mobile
   private mmCenterY = 0;
 
   // Ability display
@@ -67,19 +67,19 @@ export class UIScene extends Phaser.Scene {
   private readonly barW = 150;
   private readonly barH = 14;
 
-  // Mobile touch controls
+  // Mobile touch controls — modern Brawl Stars / Archero inspired
   private joystickGfx!: Phaser.GameObjects.Graphics;
   private joystickThumbGfx!: Phaser.GameObjects.Graphics;
   private fireButtonGfx!: Phaser.GameObjects.Graphics;
   private abilityButtonGfx!: Phaser.GameObjects.Graphics;
   private joystickPointerId: number = -1;
   private firePointerId: number = -1;
-  private readonly joyX = 90;      // joystick center X
+  private readonly joyX = 120;      // joystick center X — moved right to avoid edge
   private readonly joyY = 0;       // set in create()
-  private readonly joyRadius = 50; // outer ring radius
-  private readonly joyThumbR = 18; // thumb radius
-  private readonly fireRadius = 32;
-  private readonly abilityBtnRadius = 24;
+  private readonly joyRadius = 65;  // outer ring radius — BIGGER
+  private readonly joyThumbR = 26;  // thumb radius — BIGGER
+  private readonly fireRadius = 42; // fire button — BIGGER
+  private readonly abilityBtnRadius = 36; // ability button — BIGGER
 
   constructor() {
     super({ key: 'UIScene' });
@@ -118,27 +118,33 @@ export class UIScene extends Phaser.Scene {
     // --- Quest tracker (top-right) --- BIGGER TEXT
     this.questGfx = this.add.graphics().setDepth(99);
 
-    // --- Minimap (bottom-left) ---
-    this.mmCenterY = this.cameras.main.height - this.mmRadius - 12;
+    // --- Minimap --- On mobile: smaller, top-right to avoid joystick overlap
+    if (InputManager.isMobile) {
+      this.mmX = this.cameras.main.width - 50;
+      this.mmCenterY = 110; // below the quest panel
+    } else {
+      this.mmCenterY = this.cameras.main.height - this.mmRadius - 12;
+    }
     this.minimapGfx = this.add.graphics().setDepth(98);
 
     // Circular mask for minimap
     this.minimapMask = this.add.graphics();
     this.minimapMask.fillStyle(0xffffff);
-    this.minimapMask.fillCircle(this.mmX, this.mmCenterY, this.mmRadius);
+    this.minimapMask.fillCircle(this.mmX, this.mmCenterY, InputManager.isMobile ? 35 : this.mmRadius);
     const mask = this.minimapMask.createGeometryMask();
     this.minimapGfx.setMask(mask);
 
-    this.add.text(this.mmX, this.mmCenterY - this.mmRadius - 6, 'N', {
+    this.add.text(this.mmX, this.mmCenterY - (InputManager.isMobile ? 35 : this.mmRadius) - 6, 'N', {
       fontFamily: 'monospace', fontSize: '9px', color: '#ddaa44',
       stroke: '#000', strokeThickness: 2,
     }).setOrigin(0.5).setDepth(100);
 
+    const effectiveR = InputManager.isMobile ? 35 : this.mmRadius;
     const mmBorder = this.add.graphics().setDepth(100);
     mmBorder.lineStyle(3, C.panelBorder);
-    mmBorder.strokeCircle(this.mmX, this.mmCenterY, this.mmRadius + 1);
+    mmBorder.strokeCircle(this.mmX, this.mmCenterY, effectiveR + 1);
     mmBorder.lineStyle(1, C.panelBg);
-    mmBorder.strokeCircle(this.mmX, this.mmCenterY, this.mmRadius + 3);
+    mmBorder.strokeCircle(this.mmX, this.mmCenterY, effectiveR + 3);
 
     // --- Death overlay ---
     this.deathOverlay = this.add.graphics().setDepth(200).setVisible(false);
@@ -810,11 +816,11 @@ export class UIScene extends Phaser.Scene {
     });
   }
 
-  // ---- Mobile touch controls ----
+  // ---- Mobile touch controls — modern clean design ----
   private setupMobileControls(): void {
     const h = this.cameras.main.height;
     const w = this.cameras.main.width;
-    const joyY = h - 90;
+    const joyY = h - 110; // moved up slightly for bigger joystick
     // Store joyY for use in handlers (readonly joyY can't be set in create)
     (this as any)._joyY = joyY;
 
@@ -828,17 +834,17 @@ export class UIScene extends Phaser.Scene {
     this.drawJoystickThumb(this.joyX, joyY);
 
     // --- Fire button (bottom-right) ---
-    const fireX = w - 70;
-    const fireY = h - 90;
+    const fireX = w - 80;
+    const fireY = h - 100;
     (this as any)._fireX = fireX;
     (this as any)._fireY = fireY;
 
     this.fireButtonGfx = this.add.graphics().setDepth(200);
     this.drawFireButton(fireX, fireY, false);
 
-    // --- Ability button (above fire button) ---
-    const abX = w - 130;
-    const abY = h - 90;
+    // --- Ability button (left of fire button) ---
+    const abX = w - 165;
+    const abY = h - 100;
     (this as any)._abX = abX;
     (this as any)._abY = abY;
 
@@ -931,65 +937,112 @@ export class UIScene extends Phaser.Scene {
   private drawJoystickBase(x: number, y: number): void {
     const g = this.joystickGfx;
     g.clear();
-    // Outer ring
-    g.fillStyle(0x000000, 0.3);
+    // Outer glow ring
+    g.fillStyle(0x000000, 0.15);
+    g.fillCircle(x, y, this.joyRadius + 4);
+    // Base circle — dark with subtle gradient look
+    g.fillStyle(0x111111, 0.4);
     g.fillCircle(x, y, this.joyRadius);
-    g.lineStyle(2, 0xffffff, 0.4);
+    // Inner ring
+    g.lineStyle(2, 0xffffff, 0.2);
     g.strokeCircle(x, y, this.joyRadius);
+    // Directional guides (subtle cross)
+    g.lineStyle(1, 0xffffff, 0.08);
+    g.beginPath(); g.moveTo(x - this.joyRadius + 10, y); g.lineTo(x + this.joyRadius - 10, y); g.strokePath();
+    g.beginPath(); g.moveTo(x, y - this.joyRadius + 10); g.lineTo(x, y + this.joyRadius - 10); g.strokePath();
     // Inner deadzone circle
-    g.lineStyle(1, 0xffffff, 0.15);
-    g.strokeCircle(x, y, 8);
+    g.lineStyle(1, 0xffffff, 0.1);
+    g.strokeCircle(x, y, 10);
   }
 
   private drawJoystickThumb(x: number, y: number): void {
     const g = this.joystickThumbGfx;
     g.clear();
-    g.fillStyle(0xffffff, 0.5);
+    // Shadow
+    g.fillStyle(0x000000, 0.2);
+    g.fillCircle(x + 1, y + 2, this.joyThumbR);
+    // Main thumb — clean white with gradient effect
+    g.fillStyle(0xdddddd, 0.7);
     g.fillCircle(x, y, this.joyThumbR);
-    g.lineStyle(2, 0xffffff, 0.7);
+    // Highlight (inner bright circle)
+    g.fillStyle(0xffffff, 0.5);
+    g.fillCircle(x - 3, y - 3, this.joyThumbR * 0.5);
+    // Border
+    g.lineStyle(2, 0xffffff, 0.8);
     g.strokeCircle(x, y, this.joyThumbR);
   }
 
   private drawFireButton(x: number, y: number, pressed: boolean): void {
     const g = this.fireButtonGfx;
     g.clear();
-    const alpha = pressed ? 0.6 : 0.35;
-    const borderAlpha = pressed ? 0.9 : 0.5;
-    // Red circle for fire
-    g.fillStyle(0xcc3333, alpha);
-    g.fillCircle(x, y, this.fireRadius);
-    g.lineStyle(2, 0xff6666, borderAlpha);
-    g.strokeCircle(x, y, this.fireRadius);
+    const r = this.fireRadius;
+    const baseAlpha = pressed ? 0.75 : 0.45;
+    const glowAlpha = pressed ? 0.3 : 0.1;
 
-    // Crosshair icon inside
-    const s = 10;
-    g.lineStyle(2, 0xffffff, borderAlpha);
+    // Outer glow
+    g.fillStyle(0xff3333, glowAlpha);
+    g.fillCircle(x, y, r + 6);
+    // Shadow
+    g.fillStyle(0x000000, 0.2);
+    g.fillCircle(x + 1, y + 2, r);
+    // Main button
+    g.fillStyle(0xcc2222, baseAlpha);
+    g.fillCircle(x, y, r);
+    // Inner highlight (top-left shine)
+    g.fillStyle(0xff6644, baseAlpha * 0.6);
+    g.fillCircle(x - r * 0.2, y - r * 0.2, r * 0.6);
+    // Border
+    g.lineStyle(3, 0xff4444, pressed ? 1.0 : 0.6);
+    g.strokeCircle(x, y, r);
+
+    // Crosshair icon — clean and bold
+    const s = r * 0.4;
+    g.lineStyle(3, 0xffffff, pressed ? 1.0 : 0.8);
     g.beginPath(); g.moveTo(x - s, y); g.lineTo(x + s, y); g.strokePath();
     g.beginPath(); g.moveTo(x, y - s); g.lineTo(x, y + s); g.strokePath();
-    g.lineStyle(1, 0xffffff, borderAlpha * 0.5);
-    g.strokeCircle(x, y, 6);
+    // Aim ring
+    g.lineStyle(2, 0xffffff, pressed ? 0.7 : 0.4);
+    g.strokeCircle(x, y, r * 0.35);
   }
 
   private drawAbilityButton(x: number, y: number, pressed: boolean): void {
     const g = this.abilityButtonGfx;
     g.clear();
-    const alpha = pressed ? 0.6 : 0.35;
-    const borderAlpha = pressed ? 0.9 : 0.5;
-    g.fillStyle(0x3355aa, alpha);
-    g.fillCircle(x, y, this.abilityBtnRadius);
-    g.lineStyle(2, 0x6699ff, borderAlpha);
-    g.strokeCircle(x, y, this.abilityBtnRadius);
+    const r = this.abilityBtnRadius;
+    const baseAlpha = pressed ? 0.75 : 0.45;
+    const glowAlpha = pressed ? 0.3 : 0.1;
 
-    // Star/burst icon
-    g.lineStyle(2, 0xffffff, borderAlpha);
-    for (let i = 0; i < 4; i++) {
-      const angle = (i * Math.PI) / 4;
-      const s = 8;
+    // Outer glow
+    g.fillStyle(0x4488ff, glowAlpha);
+    g.fillCircle(x, y, r + 5);
+    // Shadow
+    g.fillStyle(0x000000, 0.2);
+    g.fillCircle(x + 1, y + 2, r);
+    // Main button
+    g.fillStyle(0x2244aa, baseAlpha);
+    g.fillCircle(x, y, r);
+    // Inner highlight
+    g.fillStyle(0x4488ff, baseAlpha * 0.5);
+    g.fillCircle(x - r * 0.2, y - r * 0.2, r * 0.55);
+    // Border
+    g.lineStyle(3, 0x6699ff, pressed ? 1.0 : 0.6);
+    g.strokeCircle(x, y, r);
+
+    // Lightning bolt / star burst icon — 6-point star
+    g.lineStyle(3, 0xffffff, pressed ? 1.0 : 0.8);
+    const spikes = 6;
+    for (let i = 0; i < spikes; i++) {
+      const angle = (i * Math.PI * 2) / spikes - Math.PI / 2;
+      const innerR = r * 0.2;
+      const outerR = r * 0.55;
       g.beginPath();
-      g.moveTo(x + Math.cos(angle) * 3, y + Math.sin(angle) * 3);
-      g.lineTo(x + Math.cos(angle) * s, y + Math.sin(angle) * s);
+      g.moveTo(x + Math.cos(angle) * innerR, y + Math.sin(angle) * innerR);
+      g.lineTo(x + Math.cos(angle) * outerR, y + Math.sin(angle) * outerR);
       g.strokePath();
     }
+    // Center dot
+    g.fillStyle(0xffffff, pressed ? 0.9 : 0.6);
+    g.fillCircle(x, y, 3);
   }
 
   // ---- Panel drawing helper ----

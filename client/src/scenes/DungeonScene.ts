@@ -9,7 +9,7 @@ import { QuestManager } from '../systems/QuestManager';
 import { AbilitySystem } from '../systems/AbilitySystem';
 import { MusicManager } from '../systems/MusicManager';
 import { TILE_SIZE, ItemType, BulletPatternType, xpForLevel } from '@yggdrasil/shared';
-import { DungeonDef, DungeonBossDef } from '../data/DungeonDatabase';
+import { DungeonDef, DungeonBossDef, getDungeon } from '../data/DungeonDatabase';
 import { getItem } from '../data/ItemDatabase';
 import { getClass } from '../data/ClassDatabase';
 import { angleBetween, distanceBetween, randomInt } from '../utils/MathUtils';
@@ -30,10 +30,12 @@ interface DungeonRoom {
   h: number;       // height in tiles
   centerX: number; // pixel center
   centerY: number; // pixel center
-  type: 'combat' | 'treasure' | 'boss' | 'start';
+  type: 'combat' | 'treasure' | 'boss' | 'start' | 'miniboss' | 'secret' | 'trap';
+  shape: 'rect' | 'L' | 'cross' | 'arena' | 'corridor'; // room shape variety
   cleared: boolean;
   enemies: Phaser.Physics.Arcade.Sprite[];
   doorOpen: boolean;
+  hazards: Phaser.GameObjects.Graphics[]; // environmental hazards
 }
 
 interface DungeonConfig {
@@ -55,6 +57,9 @@ interface DungeonConfig {
     maxHp: number;
     maxMp: number;
   };
+  // Endless mode
+  endless?: boolean;      // true = infinite procedural dungeon
+  endlessFloor?: number;  // current floor number (1-based)
 }
 
 export class DungeonScene extends Phaser.Scene {
@@ -102,6 +107,11 @@ export class DungeonScene extends Phaser.Scene {
   private isExiting: boolean = false;       // guard to prevent double-exit
   private hasTransitioned: boolean = false; // guard to prevent double scene transition
 
+  // Endless mode
+  private endless: boolean = false;
+  private endlessFloor: number = 1;
+  private floorText: Phaser.GameObjects.Text | null = null;
+
   // Enemy health bars (world-space graphics)
   private enemyHealthBars: Map<Phaser.Physics.Arcade.Sprite, Phaser.GameObjects.Graphics> = new Map();
 
@@ -145,6 +155,11 @@ export class DungeonScene extends Phaser.Scene {
     // Resolve class tint for damage flash restoration
     const classDef = this.config.classId ? getClass(this.config.classId) : null;
     this.classTint = classDef?.spriteTint ?? 0;
+
+    // Endless mode
+    this.endless = this.config.endless ?? false;
+    this.endlessFloor = this.config.endlessFloor ?? 1;
+    this.floorText = null;
   }
 
   create(): void {
@@ -282,14 +297,48 @@ export class DungeonScene extends Phaser.Scene {
     // 14. Spawn enemies in all combat rooms
     this.spawnRoomEnemies();
 
+    // 14b. Spawn environmental hazards
+    this.spawnRoomHazards();
+
     // 15. Hide cursor
     this.input.setDefaultCursor('none');
 
     // 16. Grant invincibility on enter
     this.playerController.grantInvincibility(2.0);
 
+    // In endless mode, death means restart this floor
+    if (this.endless) {
+      this.events.on('playerDeath', () => {
+        // After the 3-second respawn timer, restart the floor
+        this.time.delayedCall(3500, () => {
+          if (this.isExiting) return;
+          this.events.emit('notification', 'Restarting floor...', '#ff8844');
+          this.time.delayedCall(1000, () => {
+            if (this.isExiting) return;
+            // Restart with same config (same floor, full HP)
+            const restartConfig = { ...this.config };
+            restartConfig.playerHp = restartConfig.playerStats.maxHp;
+            restartConfig.playerMp = restartConfig.playerStats.maxMp;
+            this.musicManager?.stopMusic();
+            this.scene.restart(restartConfig);
+          });
+        });
+      });
+    }
+
     // 17. Show dungeon name
-    this.events.emit('notification', `Entering: ${def.name}`, '#cc88ff');
+    if (this.endless) {
+      this.events.emit('notification', `DEPTH ${this.endlessFloor}`, '#cc88ff');
+      // Floor indicator (screen-space)
+      this.floorText = this.add.text(
+        this.cameras.main.width / 2, 50,
+        `DEPTH ${this.endlessFloor}`,
+        { fontFamily: 'monospace', fontSize: '10px', color: '#cc88ff',
+          stroke: '#000', strokeThickness: 2 },
+      ).setOrigin(0.5).setScrollFactor(0).setDepth(100);
+    } else {
+      this.events.emit('notification', `Entering: ${def.name}`, '#cc88ff');
+    }
 
     // 18. Launch UI scene if not already running
     if (!this.scene.isActive('UIScene')) {
@@ -397,6 +446,9 @@ export class DungeonScene extends Phaser.Scene {
       this.updateBoss(dt);
     }
 
+    // Update environmental hazards
+    this.updateHazards(dt);
+
     // Check room clearing
     this.checkRoomCleared();
 
@@ -470,31 +522,87 @@ export class DungeonScene extends Phaser.Scene {
     const CORRIDOR = 5;   // tiles between rooms (corridor length)
     const PAD = 2;         // world edge padding
 
-    // Direction cycle: right, down, right, up, right, down...
-    const DIRS: ('right' | 'down' | 'up')[] = ['right', 'down', 'right', 'up'];
+    // Randomized direction cycle for more varied layouts
+    const allDirs: ('right' | 'down' | 'up')[] = ['right', 'down', 'right', 'up'];
+    // Shuffle mid-sections for variety
+    const DIRS = [...allDirs];
+    if (Math.random() > 0.5) { DIRS[1] = 'up'; DIRS[3] = 'down'; }
+
+    // Room type assignment — varied experiences
+    const roomTypes: ('start' | 'combat' | 'boss' | 'treasure' | 'miniboss' | 'trap' | 'secret')[] = [];
+    for (let i = 0; i < numRooms; i++) {
+      if (i === 0) { roomTypes.push('start'); continue; }
+      if (i === numRooms - 1) { roomTypes.push('boss'); continue; }
+      // Distribute special rooms throughout
+      const roll = Math.random();
+      if (i === Math.floor(numRooms / 2) && numRooms >= 5) {
+        roomTypes.push('miniboss'); // Mid-dungeon mini-boss
+      } else if (roll < 0.15 && i > 1) {
+        roomTypes.push('treasure'); // Treasure room — no enemies, just rewards
+      } else if (roll < 0.25 && def.difficulty >= 5) {
+        roomTypes.push('trap'); // Trap room — hazard gauntlet
+      } else if (roll < 0.30 && i >= 2) {
+        roomTypes.push('secret'); // Secret room — hidden bonus
+      } else {
+        roomTypes.push('combat');
+      }
+    }
+
+    // Room shapes for visual variety
+    const shapes: ('rect' | 'L' | 'cross' | 'arena' | 'corridor')[] = [];
+    for (let i = 0; i < numRooms; i++) {
+      const type = roomTypes[i];
+      if (type === 'boss' || type === 'arena') { shapes.push('arena'); continue; }
+      if (type === 'trap') { shapes.push('corridor'); continue; }
+      if (type === 'secret') { shapes.push('rect'); continue; }
+      // Combat/miniboss rooms get varied shapes
+      const shapeRoll = Math.random();
+      if (shapeRoll < 0.3) shapes.push('L');
+      else if (shapeRoll < 0.5) shapes.push('cross');
+      else if (shapeRoll < 0.65) shapes.push('arena');
+      else shapes.push('rect');
+    }
 
     // First pass: calculate room grid positions (in tile units) and world size
-    type RoomPlacement = { rx: number; ry: number; rw: number; rh: number; type: 'start' | 'combat' | 'boss' };
+    type RoomPlacement = {
+      rx: number; ry: number; rw: number; rh: number;
+      type: typeof roomTypes[number];
+      shape: typeof shapes[number];
+    };
     const placements: RoomPlacement[] = [];
 
     let cx = PAD, cy = PAD;
 
     for (let i = 0; i < numRooms; i++) {
-      // Vary room size — combat rooms can be bigger, boss room is largest
-      const isFirst = i === 0;
       const isLast = i === numRooms - 1;
-      const baseW = isLast ? def.roomWidth + 6 : def.roomWidth + randomInt(-4, 6);
-      const baseH = isLast ? def.roomHeight + 6 : def.roomHeight + randomInt(-4, 6);
-      const rw = Math.max(12, baseW);
-      const rh = Math.max(10, baseH);
+      const type = roomTypes[i];
+      const shape = shapes[i];
 
-      placements.push({
-        rx: cx,
-        ry: cy,
-        rw,
-        rh,
-        type: isFirst ? 'start' : isLast ? 'boss' : 'combat',
-      });
+      // Size varies by room type
+      let rw: number, rh: number;
+      if (isLast) {
+        // Boss room — largest, circular arena feel
+        rw = def.roomWidth + 8;
+        rh = def.roomHeight + 8;
+      } else if (type === 'treasure' || type === 'secret') {
+        // Small compact rooms
+        rw = Math.max(10, def.roomWidth - 4);
+        rh = Math.max(8, def.roomHeight - 4);
+      } else if (type === 'trap') {
+        // Long corridor
+        rw = def.roomWidth + randomInt(4, 10);
+        rh = Math.max(8, def.roomHeight - 6);
+      } else if (type === 'miniboss') {
+        // Slightly larger than combat
+        rw = def.roomWidth + 4;
+        rh = def.roomHeight + 4;
+      } else {
+        // Standard combat — varying sizes
+        rw = Math.max(12, def.roomWidth + randomInt(-4, 6));
+        rh = Math.max(10, def.roomHeight + randomInt(-4, 6));
+      }
+
+      placements.push({ rx: cx, ry: cy, rw, rh, type, shape });
 
       if (i < numRooms - 1) {
         const dir = DIRS[i % DIRS.length];
@@ -510,7 +618,6 @@ export class DungeonScene extends Phaser.Scene {
       maxX = Math.max(maxX, p.rx + p.rw + PAD);
       maxY = Math.max(maxY, p.ry + p.rh + PAD);
     }
-    // Ensure nothing is out of bounds (clamp negative positions)
     const minX = Math.min(0, ...placements.map(p => p.rx));
     const minY = Math.min(0, ...placements.map(p => p.ry));
     const shiftX = minX < 0 ? -minX + PAD : 0;
@@ -533,9 +640,11 @@ export class DungeonScene extends Phaser.Scene {
         centerX: (rx + p.rw / 2) * TILE_SIZE,
         centerY: (ry + p.rh / 2) * TILE_SIZE,
         type:    p.type,
-        cleared: p.type === 'start',
+        shape:   p.shape,
+        cleared: p.type === 'start' || p.type === 'treasure',
         enemies: [],
-        doorOpen: p.type === 'start',
+        doorOpen: p.type === 'start' || p.type === 'treasure',
+        hazards: [],
       });
     }
   }
@@ -553,13 +662,9 @@ export class DungeonScene extends Phaser.Scene {
       }
     };
 
-    // Carve rooms (interior only — border stays wall)
+    // Carve rooms based on their shape
     for (const room of this.rooms) {
-      for (let ty = room.y + 1; ty < room.y + room.h - 1; ty++) {
-        for (let tx = room.x + 1; tx < room.x + room.w - 1; tx++) {
-          carve(tx, ty);
-        }
-      }
+      this.carveRoomShape(room, carve);
     }
 
     // Carve corridors between consecutive rooms using center-to-center L-shaped paths
@@ -567,18 +672,17 @@ export class DungeonScene extends Phaser.Scene {
       const a = this.rooms[i];
       const b = this.rooms[i + 1];
 
-      // Connect centers with an L-shaped 3-wide corridor
       const ax = Math.floor(a.x + a.w / 2);
       const ay = Math.floor(a.y + a.h / 2);
       const bx = Math.floor(b.x + b.w / 2);
       const by = Math.floor(b.y + b.h / 2);
 
-      // Horizontal leg from ax → bx at ay
+      // Horizontal leg
       const hMinX = Math.min(ax, bx), hMaxX = Math.max(ax, bx);
       for (let tx = hMinX; tx <= hMaxX; tx++) {
         for (let dy = -1; dy <= 1; dy++) carve(tx, ay + dy);
       }
-      // Vertical leg from ay → by at bx
+      // Vertical leg
       const vMinY = Math.min(ay, by), vMaxY = Math.max(ay, by);
       for (let ty = vMinY; ty <= vMaxY; ty++) {
         for (let dx = -1; dx <= 1; dx++) carve(bx + dx, ty);
@@ -600,6 +704,190 @@ export class DungeonScene extends Phaser.Scene {
     this.groundLayer.setCollision(def.tileWall);
   }
 
+  /** Carve a room according to its shape */
+  private carveRoomShape(room: DungeonRoom, carve: (tx: number, ty: number) => void): void {
+    const { x, y, w, h, shape } = room;
+
+    switch (shape) {
+      case 'L': {
+        // L-shaped: full top half + left half of bottom
+        const midY = Math.floor(y + h / 2);
+        const midX = Math.floor(x + w * 0.6);
+        // Top portion (full width)
+        for (let ty = y + 1; ty < midY; ty++) {
+          for (let tx = x + 1; tx < x + w - 1; tx++) carve(tx, ty);
+        }
+        // Bottom-left portion
+        for (let ty = midY; ty < y + h - 1; ty++) {
+          for (let tx = x + 1; tx < midX; tx++) carve(tx, ty);
+        }
+        break;
+      }
+      case 'cross': {
+        // Cross/plus shape: horizontal and vertical strips
+        const armW = Math.max(4, Math.floor(w * 0.4));
+        const armH = Math.max(4, Math.floor(h * 0.4));
+        const cx = Math.floor(x + w / 2);
+        const cy = Math.floor(y + h / 2);
+        // Horizontal arm
+        for (let ty = cy - Math.floor(armH / 2); ty <= cy + Math.floor(armH / 2); ty++) {
+          for (let tx = x + 1; tx < x + w - 1; tx++) carve(tx, ty);
+        }
+        // Vertical arm
+        for (let ty = y + 1; ty < y + h - 1; ty++) {
+          for (let tx = cx - Math.floor(armW / 2); tx <= cx + Math.floor(armW / 2); tx++) carve(tx, ty);
+        }
+        break;
+      }
+      case 'arena': {
+        // Circular arena (ellipse carved from rectangle)
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const rx = (w - 2) / 2;
+        const ry = (h - 2) / 2;
+        for (let ty = y + 1; ty < y + h - 1; ty++) {
+          for (let tx = x + 1; tx < x + w - 1; tx++) {
+            const dx = (tx - cx) / rx;
+            const dy = (ty - cy) / ry;
+            if (dx * dx + dy * dy <= 1.0) carve(tx, ty);
+          }
+        }
+        // Also carve small entry points at cardinal directions
+        const entries = [
+          { tx: Math.floor(cx), ty: y },         // top
+          { tx: Math.floor(cx), ty: y + h - 1 }, // bottom
+          { tx: x, ty: Math.floor(cy) },          // left
+          { tx: x + w - 1, ty: Math.floor(cy) }, // right
+        ];
+        for (const e of entries) {
+          for (let d = -1; d <= 1; d++) {
+            carve(e.tx + d, e.ty);
+            carve(e.tx, e.ty + d);
+          }
+        }
+        break;
+      }
+      case 'corridor': {
+        // Long narrow corridor with small alcoves
+        const midH = Math.max(4, Math.floor(h * 0.5));
+        const topY = Math.floor(y + (h - midH) / 2);
+        // Main corridor
+        for (let ty = topY; ty < topY + midH; ty++) {
+          for (let tx = x + 1; tx < x + w - 1; tx++) carve(tx, ty);
+        }
+        // Random alcoves along the sides
+        const alcoveCount = Math.floor(w / 8);
+        for (let a = 0; a < alcoveCount; a++) {
+          const alcoveX = x + 3 + Math.floor(Math.random() * (w - 6));
+          const side = Math.random() > 0.5 ? topY - 2 : topY + midH;
+          for (let dy = 0; dy < 3; dy++) {
+            for (let dx = -1; dx <= 1; dx++) carve(alcoveX + dx, side + dy);
+          }
+        }
+        break;
+      }
+      case 'rect':
+      default: {
+        // Standard rectangular room (original behavior)
+        for (let ty = y + 1; ty < y + h - 1; ty++) {
+          for (let tx = x + 1; tx < x + w - 1; tx++) carve(tx, ty);
+        }
+        break;
+      }
+    }
+  }
+
+  /** Spawn environmental hazards based on dungeon theme */
+  private spawnRoomHazards(): void {
+    const def = this.config.dungeonDef;
+
+    for (const room of this.rooms) {
+      if (room.type === 'start' || room.type === 'treasure') continue;
+
+      // Only some rooms get hazards
+      if (room.type !== 'trap' && Math.random() > 0.4) continue;
+
+      const hazardCount = room.type === 'trap'
+        ? randomInt(3, 6) // Trap rooms are packed with hazards
+        : randomInt(1, 3);
+
+      for (let i = 0; i < hazardCount; i++) {
+        const hx = (room.x + 2 + Math.random() * (room.w - 4)) * TILE_SIZE;
+        const hy = (room.y + 2 + Math.random() * (room.h - 4)) * TILE_SIZE;
+        const hazardR = 12 + Math.random() * 10;
+
+        const g = this.add.graphics().setDepth(1);
+
+        // Dungeon-themed hazards
+        if (def.id === 'frostheim_caverns') {
+          // Ice patches — blue semi-transparent circles
+          g.fillStyle(0x88ccff, 0.3);
+          g.fillCircle(hx, hy, hazardR);
+          g.lineStyle(1, 0xaaddff, 0.4);
+          g.strokeCircle(hx, hy, hazardR);
+        } else if (def.id === 'verdant_hollows') {
+          // Poison pools — green bubbling
+          g.fillStyle(0x22aa22, 0.35);
+          g.fillCircle(hx, hy, hazardR);
+          g.fillStyle(0x44ff44, 0.2);
+          g.fillCircle(hx - 3, hy - 2, hazardR * 0.4);
+        } else if (def.id === 'muspelheim_forge') {
+          // Lava pools — red/orange glow
+          g.fillStyle(0xff3300, 0.4);
+          g.fillCircle(hx, hy, hazardR);
+          g.fillStyle(0xffaa00, 0.3);
+          g.fillCircle(hx, hy, hazardR * 0.5);
+          g.lineStyle(1, 0xff6600, 0.5);
+          g.strokeCircle(hx, hy, hazardR);
+        } else {
+          // Dark void patches — purple/black
+          g.fillStyle(0x330055, 0.4);
+          g.fillCircle(hx, hy, hazardR);
+          g.fillStyle(0x6600aa, 0.2);
+          g.fillCircle(hx, hy, hazardR * 0.6);
+        }
+
+        room.hazards.push(g);
+
+        // Hazard damage zone — damage player if they stand in it
+        // Store hazard data for checking in update loop
+        g.setData('hazardX', hx);
+        g.setData('hazardY', hy);
+        g.setData('hazardR', hazardR);
+        g.setData('hazardDamage', 3 + def.difficulty);
+        g.setData('hazardCooldown', 0);
+      }
+    }
+  }
+
+  /** Check hazard zones and damage player (called from update) */
+  private updateHazards(dt: number): void {
+    if (this.playerController.isDead || this.playerController.isInvincible) return;
+
+    for (const room of this.rooms) {
+      for (const g of room.hazards) {
+        const hx = g.getData('hazardX') as number;
+        const hy = g.getData('hazardY') as number;
+        const hr = g.getData('hazardR') as number;
+        let cd = g.getData('hazardCooldown') as number;
+
+        cd -= dt;
+        if (cd > 0) { g.setData('hazardCooldown', cd); continue; }
+
+        const dx = this.player.x - hx;
+        const dy = this.player.y - hy;
+        if (dx * dx + dy * dy < hr * hr) {
+          const dmg = g.getData('hazardDamage') as number;
+          this.playerController.takeDamage(dmg);
+          g.setData('hazardCooldown', 0.8); // damage tick rate
+          // Brief visual pulse
+          g.setAlpha(0.8);
+          this.time.delayedCall(200, () => g.setAlpha(1));
+        }
+      }
+    }
+  }
+
   // ========================================================================
   // ENEMY SPAWNING
   // ========================================================================
@@ -609,78 +897,103 @@ export class DungeonScene extends Phaser.Scene {
     const runeLevel = this.config.runeKeyLevel;
 
     for (const room of this.rooms) {
-      if (room.type === 'start') continue;
+      if (room.type === 'start' || room.type === 'treasure') continue;
 
       if (room.type === 'boss') {
         this.spawnBoss(room);
         continue;
       }
 
-      // 3-5 enemies per room depending on difficulty
-      const baseCount = 3 + Math.floor(def.difficulty / 3);  // 3 for diff 1-2, 4 for 3-5, 5 for 6+
-      const count = Math.min(5, Math.floor(baseCount * (1 + runeLevel * 0.1)));
+      // Enemy count varies by room type
+      let count: number;
+      if (room.type === 'miniboss') {
+        count = 2; // Mini-boss + a couple guards
+      } else if (room.type === 'trap') {
+        count = randomInt(1, 3); // Trap rooms have fewer enemies but hazards
+      } else if (room.type === 'secret') {
+        count = randomInt(2, 3); // Secret rooms: small but tough
+      } else {
+        const baseCount = 3 + Math.floor(def.difficulty / 3);
+        count = Math.min(6, Math.floor(baseCount * (1 + runeLevel * 0.1)));
+      }
 
-      // Room aggro range: enemies stay idle until player steps inside the room
-      const roomAggroW = room.w * TILE_SIZE * 0.6;  // 60% of room width in pixels
+      const roomAggroW = room.w * TILE_SIZE * 0.6;
       const roomAggroH = room.h * TILE_SIZE * 0.6;
 
       for (let i = 0; i < count; i++) {
-        // Random position inside room (avoid walls)
         const ex = (room.x + 2 + Math.random() * (room.w - 4)) * TILE_SIZE;
         const ey = (room.y + 2 + Math.random() * (room.h - 4)) * TILE_SIZE;
 
-        // Dungeon enemies: scale HP and damage by difficulty so each dungeon feels harder
-        // Flame dungeon (diff 8) is the reference point — kept at roughly current values
         const level = Math.min(20, def.difficulty * 3 + Math.floor(runeLevel * 0.5));
-        const hpMult  = (0.6 + def.difficulty * 0.1)  * (1 + runeLevel * 0.1);
-        // diff3=0.9x  diff5=1.1x  diff8=1.4x  diff10=1.6x
-        const dmgMult = (0.5 + def.difficulty * 0.09) * (1 + runeLevel * 0.08);
-        // diff3=0.77x  diff5=0.95x  diff8=1.22x  diff10=1.40x
+        let hpMult  = (0.6 + def.difficulty * 0.1)  * (1 + runeLevel * 0.1);
+        let dmgMult = (0.5 + def.difficulty * 0.09) * (1 + runeLevel * 0.08);
 
-        // Texture and scale vary by dungeon theme
-        const textureKey = 'enemy_medium';
+        // Enemy archetype — varies by dungeon and role
+        let textureKey = 'enemy_medium';
+        let enemyScale = 0.7 + def.difficulty * 0.04 + Math.random() * 0.35;
+        let speed = 45 + level * 3;
+
+        // Mini-boss enemies are tougher (first enemy in miniboss room is the elite)
+        const isMiniBoss = room.type === 'miniboss' && i === 0;
+        if (isMiniBoss) {
+          hpMult *= 3.0;
+          dmgMult *= 1.5;
+          enemyScale *= 1.6;
+          speed *= 0.8; // Slower but tankier
+          textureKey = 'enemy_boss';
+        }
+
+        // Secret room enemies are elites
+        if (room.type === 'secret') {
+          hpMult *= 1.5;
+          dmgMult *= 1.2;
+        }
+
+        // Vary enemy textures by dungeon — use different sprite sizes
+        if (!isMiniBoss) {
+          const textures = def.enemyTextures;
+          textureKey = textures[Math.floor(Math.random() * textures.length)];
+        }
+
         const enemy = this.physics.add.sprite(ex, ey, textureKey);
         enemy.setDepth(5);
-
-        // Per-dungeon scale ranges: frost=smaller/agile, helheim=larger/imposing
-        const minScale = 0.7 + def.difficulty * 0.04;   // frost≈0.82, helheim≈1.1
-        const maxScale = minScale + 0.35;
-        enemy.setScale(minScale + Math.random() * 0.35);
+        enemy.setScale(enemyScale);
         enemy.body!.setSize(20, 20);
 
-        // Apply dungeon theme tint to enemies
+        // Apply dungeon theme tint with variation
         if (def.enemyTint) {
-          // Vary tint slightly per enemy for visual interest
-          const tintVariance = 0x111111;
-          const r = ((def.enemyTint >> 16) & 0xff) + Math.floor((Math.random() - 0.5) * 0x22);
-          const g = ((def.enemyTint >> 8)  & 0xff) + Math.floor((Math.random() - 0.5) * 0x22);
-          const b = ((def.enemyTint)        & 0xff) + Math.floor((Math.random() - 0.5) * 0x22);
+          const r = ((def.enemyTint >> 16) & 0xff) + Math.floor((Math.random() - 0.5) * 0x33);
+          const g = ((def.enemyTint >> 8)  & 0xff) + Math.floor((Math.random() - 0.5) * 0x33);
+          const b = ((def.enemyTint)        & 0xff) + Math.floor((Math.random() - 0.5) * 0x33);
           const variedTint = (Math.max(0, Math.min(0xff, r)) << 16) |
                              (Math.max(0, Math.min(0xff, g)) << 8)  |
                               Math.max(0, Math.min(0xff, b));
-          enemy.setTint(variedTint);
+          enemy.setTint(isMiniBoss ? 0xffffff : variedTint);
         }
 
+        // More varied attack patterns
         const patterns: ('aimed' | 'radial' | 'shotgun')[] = ['aimed'];
         if (def.difficulty >= 3) patterns.push('shotgun');
         if (def.difficulty >= 6) patterns.push('radial');
+        if (isMiniBoss) patterns.push('radial', 'shotgun'); // Mini-bosses use all patterns
 
         enemy.setData('enemyData', {
           level,
           maxHp: Math.floor((40 + level * 20) * hpMult),
           hp: Math.floor((40 + level * 20) * hpMult),
           damage: Math.floor((3 + level * 2) * dmgMult),
-          speed: 45 + level * 3,      // reasonable speed
-          aggroRange: Math.max(roomAggroW, roomAggroH),  // aggro when player enters the room
+          speed,
+          aggroRange: Math.max(roomAggroW, roomAggroH),
           fireRate: 0.35 + level * 0.04,
           fireCooldown: 0.8 + Math.random() * 1.5,
-          behavior: 'idle',           // idle until player enters room
+          behavior: 'idle',
           wanderAngle: Math.random() * Math.PI * 2,
           wanderTimer: 0,
           textureKey,
           patternType: patterns[Math.floor(Math.random() * patterns.length)],
           projectileSpeed: 110 + level * 10,
           projectileTexture: 'projectile_enemy',
+          isMiniBoss,
         });
         enemy.setData('level', level);
         enemy.setData('room', room);
@@ -1303,18 +1616,87 @@ export class DungeonScene extends Phaser.Scene {
     this.boss = null;
     this.bossData = null;
 
-    // Spawn exit portal
-    this.spawnExitPortal(bossRoom);
-
     // Victory notification
     this.events.emit('notification', `${bossDef.name} DEFEATED!`, '#ffdd44');
-    this.events.emit('notification', 'Portal to Midgard has opened!', '#cc88ff');
+
+    if (this.endless) {
+      // Endless mode: advance to next floor
+      this.events.emit('notification', `Depth ${this.endlessFloor} cleared!`, '#cc88ff');
+      this.events.emit('notification', 'Descending deeper...', '#9966cc');
+
+      // Brief pause then advance to next floor
+      this.time.delayedCall(2000, () => {
+        this.advanceEndlessFloor();
+      });
+    } else {
+      // Spawn exit portal
+      this.spawnExitPortal(bossRoom);
+      this.events.emit('notification', 'Portal to Midgard has opened!', '#cc88ff');
+    }
+  }
+
+  /** Advance to the next endless floor by restarting this scene with higher difficulty */
+  private advanceEndlessFloor(): void {
+    const nextFloor = this.endlessFloor + 1;
+
+    // Scale difficulty with floor
+    const baseDiff = this.config.dungeonDef.difficulty;
+    const scaledDef = { ...this.config.dungeonDef };
+    // Every 5 floors, difficulty increases significantly
+    scaledDef.difficulty = baseDiff + Math.floor(nextFloor / 2);
+    // More rooms as floors increase
+    scaledDef.minRooms = Math.min(9, scaledDef.minRooms + Math.floor(nextFloor / 3));
+    scaledDef.maxRooms = Math.min(12, scaledDef.maxRooms + Math.floor(nextFloor / 3));
+    // Boss HP scales with floor
+    const bossHpScale = 1 + nextFloor * 0.3;
+    scaledDef.boss = { ...scaledDef.boss, maxHp: Math.floor(scaledDef.boss.maxHp * bossHpScale) };
+    // Randomize dungeon theme every few floors
+    const themes = ['frostheim_caverns', 'verdant_hollows', 'muspelheim_forge', 'helheim_sanctum'];
+    const themeIdx = (nextFloor - 1) % themes.length;
+    const themeDef = getDungeon(themes[themeIdx]);
+    if (themeDef) {
+      scaledDef.enemyTint = themeDef.enemyTint;
+      scaledDef.bossTint = themeDef.bossTint;
+      scaledDef.tileGround = themeDef.tileGround;
+      scaledDef.tileWall = themeDef.tileWall;
+      scaledDef.musicKey = themeDef.musicKey;
+      scaledDef.name = `Depth ${nextFloor} — ${themeDef.name}`;
+    }
+
+    // Carry over current player stats
+    const newConfig: DungeonConfig = {
+      dungeonDef: scaledDef,
+      runeKeyLevel: this.config.runeKeyLevel,
+      classId: this.config.classId,
+      playerHp: this.playerController.hp,
+      playerMp: this.playerController.mp,
+      playerLevel: this.playerController.level,
+      playerXp: this.playerController.xp,
+      playerStats: {
+        attack: this.playerController.attack,
+        defense: this.playerController.defense,
+        speed: this.playerController.speed,
+        dexterity: this.playerController.dexterity,
+        vitality: this.playerController.vitality,
+        wisdom: this.playerController.wisdom,
+        maxHp: this.playerController.maxHp,
+        maxMp: this.playerController.maxMp,
+      },
+      endless: true,
+      endlessFloor: nextFloor,
+    };
+
+    this.cameras.main.fadeOut(500, 0, 0, 0);
+    this.time.delayedCall(600, () => {
+      this.musicManager?.stopMusic();
+      this.scene.restart(newConfig);
+    });
   }
 
   private checkRoomCleared(): void {
     for (const room of this.rooms) {
       if (room.cleared) continue;
-      if (room.type === 'start') { room.cleared = true; continue; }
+      if (room.type === 'start' || room.type === 'treasure') { room.cleared = true; continue; }
 
       // Check if all enemies in this room are dead
       room.enemies = room.enemies.filter(e => e.active);
@@ -1322,7 +1704,20 @@ export class DungeonScene extends Phaser.Scene {
         room.cleared = true;
         room.doorOpen = true;
 
-        if (room.type !== 'boss') {
+        if (room.type === 'miniboss') {
+          this.events.emit('notification', 'Elite defeated!', '#ffaa44');
+          // Bonus XP for mini-boss room
+          this.playerController.grantXP(this.config.dungeonDef.difficulty * 25);
+          // Heal 25% on mini-boss clear
+          const healAmt = Math.floor(this.playerController.maxHp * 0.25);
+          this.playerController.hp = Math.min(this.playerController.maxHp, this.playerController.hp + healAmt);
+          this.musicManager?.playSFX('sfx_heal');
+        } else if (room.type === 'secret') {
+          this.events.emit('notification', 'Secret found! Bonus XP!', '#ffdd44');
+          this.playerController.grantXP(this.config.dungeonDef.difficulty * 20);
+        } else if (room.type === 'trap') {
+          this.events.emit('notification', 'Trap room survived!', '#ff8844');
+        } else if (room.type !== 'boss') {
           this.events.emit('notification', 'Room cleared!', '#44cc44');
         }
       }

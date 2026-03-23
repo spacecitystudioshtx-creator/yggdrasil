@@ -156,10 +156,10 @@ export class PlayerController {
     return true;
   }
 
-  /** Get base attack damage */
+  /** Get base attack damage — scales strongly with attack stat and level */
   getAttackDamage(): number {
-    // Base weapon damage + attack stat bonus
-    const baseDamage = 20 + Math.floor(this.attack * 0.5);
+    // Base weapon damage + attack stat bonus (quadratic scaling)
+    const baseDamage = 15 + Math.floor(this.attack * 1.2) + Math.floor(this.level * 2);
     // Add small random variance (±15%)
     const variance = 0.85 + Math.random() * 0.30;
     return Math.floor(baseDamage * variance);
