@@ -312,28 +312,63 @@ export class DungeonScene extends Phaser.Scene {
     // Once exiting, freeze all dungeon logic — only the camera fade runs
     if (this.isExiting) return;
 
-    // Crosshair
-    this.crosshair.setPosition(
-      this.input.activePointer.x,
-      this.input.activePointer.y,
-    );
+    // Crosshair — hide on mobile
+    if (InputManager.isMobile) {
+      this.crosshair.setVisible(false);
+    } else {
+      this.crosshair.setPosition(
+        this.input.activePointer.x,
+        this.input.activePointer.y,
+      );
+    }
 
-    const worldPoint = this.cameras.main.getWorldPoint(
-      this.input.activePointer.x,
-      this.input.activePointer.y,
-    );
+    // Get aim target: mouse on desktop, auto-aim on mobile
+    let aimX: number;
+    let aimY: number;
+
+    if (InputManager.isMobile) {
+      // Auto-aim at nearest enemy
+      let nearest: Phaser.Physics.Arcade.Sprite | null = null;
+      let nearestDist = Infinity;
+      this.enemyGroup.getChildren().forEach((child) => {
+        const e = child as Phaser.Physics.Arcade.Sprite;
+        if (!e.active) return;
+        const d = (e.x - this.player.x) ** 2 + (e.y - this.player.y) ** 2;
+        if (d < nearestDist) { nearestDist = d; nearest = e; }
+      });
+      if (nearest && nearestDist < 400 * 400) {
+        aimX = (nearest as Phaser.Physics.Arcade.Sprite).x;
+        aimY = (nearest as Phaser.Physics.Arcade.Sprite).y;
+      } else {
+        const dir = this.inputManager.getMovementDirection();
+        if (dir.x !== 0 || dir.y !== 0) {
+          aimX = this.player.x + dir.x * 200;
+          aimY = this.player.y + dir.y * 200;
+        } else {
+          aimX = this.player.x + 200;
+          aimY = this.player.y;
+        }
+      }
+    } else {
+      const worldPoint = this.cameras.main.getWorldPoint(
+        this.input.activePointer.x,
+        this.input.activePointer.y,
+      );
+      aimX = worldPoint.x;
+      aimY = worldPoint.y;
+    }
 
     // Update systems
     this.inputManager.update();
-    this.playerController.update(dt, worldPoint.x, worldPoint.y);
+    this.playerController.update(dt, aimX, aimY);
     this.projectileManager.update(dt);
     this.cameraController.update(dt);
     this.lootManager.update(dt, this.player.x, this.player.y);
     this.abilitySystem.update(dt);
 
-    // Space bar: use ability
+    // Space bar / ability button: use ability
     if (this.inputManager.isAbilityPressed() && !this.playerController.isDead) {
-      const used = this.abilitySystem.useAbility(worldPoint.x, worldPoint.y);
+      const used = this.abilitySystem.useAbility(aimX, aimY);
       if (used) this.musicManager?.playSFX('sfx_ability');
     }
 
@@ -342,8 +377,8 @@ export class DungeonScene extends Phaser.Scene {
       this.projectileManager.firePlayerProjectile(
         this.player.x,
         this.player.y,
-        worldPoint.x,
-        worldPoint.y,
+        aimX,
+        aimY,
       );
     }
 

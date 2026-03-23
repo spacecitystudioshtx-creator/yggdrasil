@@ -28,6 +28,9 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
       debug: false,
     },
   },
+  input: {
+    activePointers: 3, // support multi-touch (joystick + fire + ability)
+  },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
