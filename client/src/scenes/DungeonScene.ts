@@ -552,7 +552,7 @@ export class DungeonScene extends Phaser.Scene {
     const shapes: ('rect' | 'L' | 'cross' | 'arena' | 'corridor')[] = [];
     for (let i = 0; i < numRooms; i++) {
       const type = roomTypes[i];
-      if (type === 'boss' || type === 'arena') { shapes.push('arena'); continue; }
+      if (type === 'boss') { shapes.push('arena'); continue; }
       if (type === 'trap') { shapes.push('corridor'); continue; }
       if (type === 'secret') { shapes.push('rect'); continue; }
       // Combat/miniboss rooms get varied shapes
@@ -921,8 +921,25 @@ export class DungeonScene extends Phaser.Scene {
       const roomAggroH = room.h * TILE_SIZE * 0.6;
 
       for (let i = 0; i < count; i++) {
-        const ex = (room.x + 2 + Math.random() * (room.w - 4)) * TILE_SIZE;
-        const ey = (room.y + 2 + Math.random() * (room.h - 4)) * TILE_SIZE;
+        // Find a valid floor tile position (non-rectangular rooms have walls inside bounding box)
+        let ex = 0, ey = 0;
+        let validPos = false;
+        for (let attempt = 0; attempt < 20; attempt++) {
+          const tx = Math.floor(room.x + 2 + Math.random() * (room.w - 4));
+          const ty = Math.floor(room.y + 2 + Math.random() * (room.h - 4));
+          const tile = this.groundLayer?.getTileAt(tx, ty);
+          if (tile && tile.index !== this.config.dungeonDef.tileWall) {
+            ex = tx * TILE_SIZE + TILE_SIZE / 2;
+            ey = ty * TILE_SIZE + TILE_SIZE / 2;
+            validPos = true;
+            break;
+          }
+        }
+        if (!validPos) {
+          // Fallback: spawn at room center (always carved)
+          ex = (room.x + Math.floor(room.w / 2)) * TILE_SIZE + TILE_SIZE / 2;
+          ey = (room.y + Math.floor(room.h / 2)) * TILE_SIZE + TILE_SIZE / 2;
+        }
 
         const level = Math.min(20, def.difficulty * 3 + Math.floor(runeLevel * 0.5));
         let hpMult  = (0.6 + def.difficulty * 0.1)  * (1 + runeLevel * 0.1);

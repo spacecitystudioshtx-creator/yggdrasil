@@ -986,7 +986,15 @@ export class GameScene extends Phaser.Scene {
 
     // Apply progressive reveal based on restored dungeon progress
     if (this.lastCompletedDungeonIdx >= 0) {
-      this.time.delayedCall(500, () => this.updateFenrirReveal(this.lastCompletedDungeonIdx + 1));
+      const dungeonsCleared = this.lastCompletedDungeonIdx + 1;
+      this.time.delayedCall(500, () => this.updateFenrirReveal(dungeonsCleared));
+
+      // All 4 dungeons cleared — awaken Fenrir so projectiles and auto-aim work
+      if (dungeonsCleared >= 4) {
+        this.time.delayedCall(1500, () => {
+          this.spawnWorldBoss();
+        });
+      }
     }
 
     this.events.emit('notification', `Run restored — Level ${state.level}`, '#aaddff');
