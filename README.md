@@ -140,12 +140,14 @@ yggdrasil/
 - **Mid-run state persists across browser refresh** (level, XP, HP, MP, spawned portals)
 - Dungeon completion checkpoints saved per class
 
-#### Stage Select (Mario World–style)
-- Dot progress bar at top showing unlocked stages (green = cleared, grey = locked)
-- **`► Continue (Lv.N)`** — resume your exact saved run
-- **`Midgard (Fresh Start)`** — wipe saved run and start from level 1
-- Named checkpoints for fast-travel to later stages (e.g. "Frostheim Cleared → Lv.6")
-- Single-click to confirm; ← → ↑ ↓ arrows all navigate
+#### Stage Select (Coffee Golf tour–style)
+- Selectable circles in a horizontal path — inspired by [Coffee Golf](https://apps.apple.com/us/app/coffee-golf/id6449750555)'s tour mode level navigation
+- Navigate between circles with arrow keys or click; selected circle glows with info panel below
+- Click a circle to select, click again (or ENTER) to launch
+- **`RUN` circle** — resume your exact saved run (Lv.N)
+- **`NEW` circle** — fresh start from level 1
+- Named checkpoint circles for fast-travel (Frost, Verdant, Forge, Helheim)
+- Unlocked circles are warm/bright, locked circles are dimmed
 
 #### Respawn
 - **No permadeath** — 3-second countdown on death, respawn at last spawn point
