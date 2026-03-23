@@ -426,120 +426,143 @@ export class CharacterSelectScene extends Phaser.Scene {
     this.stageKeys = [];
     this.stageOverlay = this.add.container(0, 0).setDepth(200);
 
+    // --- Coffee Golf tour-style: circles ARE the selectable items ---
+
     // Dim backdrop
     const backdrop = this.add.graphics();
-    backdrop.fillStyle(0x000000, 0.75);
+    backdrop.fillStyle(0x000000, 0.72);
     backdrop.fillRect(0, 0, 800, 600);
     this.stageOverlay.add(backdrop);
 
-    // Panel — extra height for the dot progress bar at top
-    const pw = 420, ph = 110 + checkpoints.length * 56 + 20;
-    const px = 400 - pw / 2, py = Math.max(20, 300 - ph / 2);
+    // Compact panel — just enough for the circle path + info below
+    const pw = 520, ph = 210;
+    const px = 400 - pw / 2, py = 195;
     const panel = this.add.graphics();
     panel.fillStyle(0x2a1a0e); panel.fillRect(px, py, pw, ph);
     panel.fillStyle(0x5c3a1e); panel.fillRect(px + 2, py + 2, pw - 4, ph - 4);
     panel.fillStyle(0xdec9a0, 0.95); panel.fillRect(px + 4, py + 4, pw - 8, ph - 8);
     this.stageOverlay.add(panel);
 
-    this.stageOverlay.add(this.add.text(400, py + 16, `${cls.name} — Choose Starting Point`, {
-      fontFamily: 'monospace', fontSize: '13px', color: '#3d2410',
+    // Title
+    this.stageOverlay.add(this.add.text(400, py + 18, `${cls.name}`, {
+      fontFamily: 'monospace', fontSize: '14px', fontStyle: 'bold', color: '#3d2410',
       stroke: '#ddc090', strokeThickness: 1,
     }).setOrigin(0.5));
-    this.stageOverlay.add(this.add.text(400, py + 32, '← → ↑ ↓ to navigate  •  ENTER to confirm  •  ESC to cancel', {
-      fontFamily: 'monospace', fontSize: '8px', color: '#8b6b3d',
-    }).setOrigin(0.5));
 
-    // --- Shared progress dot bar (Mario World style) ---
+    // --- Selectable circle path ---
     const pm2 = new ProgressManager();
     const highestStage = pm2.getHighestStage(cls.id);
-    const dotCount = STAGE_CHECKPOINTS.length;  // always 5 total stages
-    const dotSpacing = Math.floor((pw - 40) / (dotCount - 1));
-    const dotBarY = py + 66;
+    const circleCount = checkpoints.length;
+    const circleSpacing = Math.min(90, Math.floor((pw - 80) / Math.max(1, circleCount - 1)));
+    const totalPathW = (circleCount - 1) * circleSpacing;
+    const pathStartX = 400 - totalPathW / 2;
+    const circleY = py + 70;
+    const circleR = 20;  // main radius for selectable circles
 
-    for (let d = 0; d < dotCount; d++) {
-      const dotX = px + 20 + d * dotSpacing;
-      const dot = this.add.graphics();
-      const isUnlocked = d <= highestStage;
-      // Filled (green) if unlocked, grey if locked; ring outline on the current selection's stage
-      dot.fillStyle(isUnlocked ? 0x44cc44 : 0x444444, 1);
-      dot.fillCircle(dotX, dotBarY, isUnlocked ? 6 : 4);
-      if (d < dotCount - 1) {
-        const lineColor = (d < highestStage) ? 0x44cc44 : 0x444444;
-        dot.lineStyle(2, lineColor, 1);
-        dot.beginPath();
-        dot.moveTo(dotX + 6, dotBarY);
-        dot.lineTo(dotX + dotSpacing - 6, dotBarY);
-        dot.strokePath();
-      }
-      // Stage number below dot
-      this.stageOverlay!.add(dot);
-      // Tiny label below each dot
-      const dotLabel = ['Start', 'Frost', 'Verdant', 'Forge', 'Helheim'][d] ?? '';
-      this.stageOverlay!.add(this.add.text(dotX, dotBarY + 10, dotLabel, {
-        fontFamily: 'monospace', fontSize: '6px', color: isUnlocked ? '#44aa44' : '#555555',
-      }).setOrigin(0.5));
-    }
-
-    // Arrow pointing to selected stage dot
-    const selectedStageForDot = checkpoints[this.stageSelectedIndex]?.stageIndex ?? 0;
-    const dotArrowIdx = selectedStageForDot === 99 ? highestStage : Math.min(selectedStageForDot, dotCount - 1);
-    const arrowX = px + 20 + dotArrowIdx * dotSpacing;
-    const arrowGfx = this.add.graphics();
-    arrowGfx.fillStyle(0xff4444, 1);
-    arrowGfx.fillTriangle(arrowX - 4, dotBarY - 12, arrowX + 4, dotBarY - 12, arrowX, dotBarY - 7);
-    this.stageOverlay!.add(arrowGfx);
-
-    // Build stage cards
-    for (let i = 0; i < checkpoints.length; i++) {
+    for (let i = 0; i < circleCount; i++) {
       const cp = checkpoints[i];
-      const cardX = px + 14, cardY = py + 90 + i * 56;
-      const cardW = pw - 28, cardH = 48;
-
-      const card = this.add.container(0, 0);
-
-      const bg = this.add.graphics();
+      const cx = pathStartX + i * circleSpacing;
       const isSelected = i === this.stageSelectedIndex;
-      bg.fillStyle(isSelected ? 0xffdd44 : 0xc8a870, isSelected ? 1 : 0.7);
-      bg.fillRect(cardX, cardY, cardW, cardH);
-      bg.lineStyle(2, isSelected ? 0x3d2410 : 0x8b6b3d);
-      bg.strokeRect(cardX, cardY, cardW, cardH);
-      card.add(bg);
+      const isContinue = cp.stageIndex === 99;
 
-      // Selection arrow indicator on left
-      if (isSelected) {
-        const sel = this.add.graphics();
-        sel.fillStyle(0xff4444, 1);
-        sel.fillTriangle(cardX + 6, cardY + 18, cardX + 6, cardY + 30, cardX + 13, cardY + 24);
-        card.add(sel);
+      // Map checkpoint to stage index for unlock check
+      const stageIdx = isContinue ? highestStage : cp.stageIndex;
+      const isUnlocked = stageIdx <= highestStage;
+
+      const circleGfx = this.add.graphics();
+
+      // Connecting line to next circle
+      if (i < circleCount - 1) {
+        const nextX = pathStartX + (i + 1) * circleSpacing;
+        circleGfx.lineStyle(3, 0x8b6b3d, 0.4);
+        circleGfx.beginPath();
+        circleGfx.moveTo(cx + circleR + 2, circleY);
+        circleGfx.lineTo(nextX - circleR - 2, circleY);
+        circleGfx.strokePath();
       }
 
-      card.add(this.add.text(cardX + 18, cardY + 10, cp.label, {
-        fontFamily: 'monospace', fontSize: '12px', fontStyle: 'bold',
-        color: isSelected ? '#3d2410' : '#5c3a1e',
-        stroke: isSelected ? '#ffee88' : '#dec9a0', strokeThickness: 1,
-      }));
-      card.add(this.add.text(cardX + 18, cardY + 28, cp.description, {
-        fontFamily: 'monospace', fontSize: '8px', color: '#6b4a28',
-      }));
-      card.add(this.add.text(cardX + cardW - 12, cardY + 24, `Lv.${cp.startLevel}`, {
-        fontFamily: 'monospace', fontSize: '10px', color: '#44aa44', fontStyle: 'bold',
-      }).setOrigin(1, 0.5));
+      if (isSelected) {
+        // Selected circle — large, bright, with glow ring
+        circleGfx.fillStyle(0xffdd44, 0.3);
+        circleGfx.fillCircle(cx, circleY, circleR + 6);
+        circleGfx.fillStyle(0xffcc22, 1);
+        circleGfx.fillCircle(cx, circleY, circleR);
+        circleGfx.lineStyle(3, 0x3d2410, 1);
+        circleGfx.strokeCircle(cx, circleY, circleR);
+        // Inner highlight
+        circleGfx.fillStyle(0xffee88, 0.6);
+        circleGfx.fillCircle(cx - 3, circleY - 3, circleR * 0.35);
+      } else if (isUnlocked) {
+        // Unlocked but not selected — medium, warm
+        circleGfx.fillStyle(0xc8a870, 1);
+        circleGfx.fillCircle(cx, circleY, circleR - 2);
+        circleGfx.lineStyle(2, 0x8b6b3d, 0.8);
+        circleGfx.strokeCircle(cx, circleY, circleR - 2);
+      } else {
+        // Locked — small, dim
+        circleGfx.fillStyle(0x888878, 0.5);
+        circleGfx.fillCircle(cx, circleY, circleR - 4);
+        circleGfx.lineStyle(1, 0x666658, 0.4);
+        circleGfx.strokeCircle(cx, circleY, circleR - 4);
+      }
+      this.stageOverlay!.add(circleGfx);
 
-      // Click to confirm — single click selects AND launches.
-      // (No pointerdown refresh: refreshing destroys the zone before pointerup fires.)
-      const zone = this.add.zone(cardX + cardW / 2, cardY + cardH / 2, cardW, cardH);
+      // Circle label — short name inside or below
+      const shortLabels = checkpoints.map(c => {
+        if (c.stageIndex === 99) return 'RUN';
+        if (c.stageIndex === 0) return 'NEW';
+        return ['', 'I', 'II', 'III', 'IV'][c.stageIndex] ?? `${c.stageIndex}`;
+      });
+      const circleLabel = this.add.text(cx, circleY, shortLabels[i], {
+        fontFamily: 'monospace',
+        fontSize: isSelected ? '11px' : '9px',
+        fontStyle: 'bold',
+        color: isSelected ? '#3d2410' : (isUnlocked ? '#5c3a1e' : '#888878'),
+      }).setOrigin(0.5);
+      this.stageOverlay!.add(circleLabel);
+
+      // Tiny stage name below circle
+      const shortName = isContinue ? 'Continue' : ['Midgard', 'Frost', 'Verdant', 'Forge', 'Helheim'][stageIdx] ?? '';
+      this.stageOverlay!.add(this.add.text(cx, circleY + circleR + 8, shortName, {
+        fontFamily: 'monospace', fontSize: '7px',
+        color: isSelected ? '#3d2410' : '#8b7b5d',
+      }).setOrigin(0.5));
+
+      // Clickable zone on each circle
+      const zone = this.add.zone(cx, circleY, circleR * 2 + 10, circleR * 2 + 10);
       zone.setInteractive({ useHandCursor: true });
       zone.on('pointerup', () => {
-        this.stageSelectedIndex = i;
-        this.confirmStageAndLaunch(cls);
+        if (i === this.stageSelectedIndex) {
+          // Second click on selected = confirm
+          this.confirmStageAndLaunch(cls);
+        } else {
+          this.stageSelectedIndex = i;
+          this.refreshStageCards(cls);
+        }
       });
-      card.add(zone);
-
-      this.stageOverlay!.add(card);
-      this.stageCards.push(card);
+      this.stageOverlay!.add(zone);
     }
 
-    // Keyboard navigation — support UP/DOWN and LEFT/RIGHT
+    // --- Info panel below circles for selected checkpoint ---
+    const sel = checkpoints[this.stageSelectedIndex];
+    const infoY = circleY + circleR + 28;
+
+    this.stageOverlay.add(this.add.text(400, infoY, sel.label, {
+      fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#3d2410',
+    }).setOrigin(0.5));
+    this.stageOverlay.add(this.add.text(400, infoY + 18, sel.description, {
+      fontFamily: 'monospace', fontSize: '9px', color: '#6b4a28',
+    }).setOrigin(0.5));
+    this.stageOverlay.add(this.add.text(400, infoY + 34, `Starting Level: ${sel.startLevel}`, {
+      fontFamily: 'monospace', fontSize: '9px', color: '#44aa44', fontStyle: 'bold',
+    }).setOrigin(0.5));
+
+    // Confirm / nav hint
+    this.stageOverlay.add(this.add.text(400, infoY + 56, '< >  navigate   ENTER  play   ESC  back', {
+      fontFamily: 'monospace', fontSize: '8px', color: '#8b7b5d',
+    }).setOrigin(0.5));
+
+    // Keyboard navigation — LEFT/RIGHT between circles, ENTER to confirm
     if (this.input.keyboard) {
       const navigate = (dir: number) => {
         this.stageSelectedIndex = Math.max(0, Math.min(this.stageCheckpoints.length - 1, this.stageSelectedIndex + dir));
@@ -553,10 +576,10 @@ export class CharacterSelectScene extends Phaser.Scene {
       const escKey   = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.ESC);
       this.stageKeys = [upKey, downKey, leftKey, rightKey, enterKey, escKey];
 
-      upKey.on('down',    () => navigate(-1));
-      downKey.on('down',  () => navigate(1));
       leftKey.on('down',  () => navigate(-1));
       rightKey.on('down', () => navigate(1));
+      upKey.on('down',    () => navigate(-1));
+      downKey.on('down',  () => navigate(1));
       enterKey.on('down', () => this.confirmStageAndLaunch(cls));
       escKey.on('down', () => {
         this.stageOverlay?.destroy();
