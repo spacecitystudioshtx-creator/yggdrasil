@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { InputManager } from '../systems/InputManager';
 
 /**
  * UIScene: Stardew Valley-inspired warm HUD overlay.
@@ -10,6 +11,7 @@ import Phaser from 'phaser';
  *   - Ability cooldown display in hotbar
  *   - Item tooltips on hover
  *   - Controls hint at bottom
+ *   - Virtual joystick + fire button for mobile
  */
 
 // Stardew color palette
@@ -64,6 +66,20 @@ export class UIScene extends Phaser.Scene {
 
   private readonly barW = 150;
   private readonly barH = 14;
+
+  // Mobile touch controls
+  private joystickGfx!: Phaser.GameObjects.Graphics;
+  private joystickThumbGfx!: Phaser.GameObjects.Graphics;
+  private fireButtonGfx!: Phaser.GameObjects.Graphics;
+  private abilityButtonGfx!: Phaser.GameObjects.Graphics;
+  private joystickPointerId: number = -1;
+  private firePointerId: number = -1;
+  private readonly joyX = 90;      // joystick center X
+  private readonly joyY = 0;       // set in create()
+  private readonly joyRadius = 50; // outer ring radius
+  private readonly joyThumbR = 18; // thumb radius
+  private readonly fireRadius = 32;
+  private readonly abilityBtnRadius = 24;
 
   constructor() {
     super({ key: 'UIScene' });
@@ -135,14 +151,20 @@ export class UIScene extends Phaser.Scene {
     this.questPanel = this.add.container(0, 0).setDepth(150).setVisible(false);
     this.mapPanel = this.add.container(0, 0).setDepth(150).setVisible(false);
 
-    // --- Controls hint (always visible at bottom) ---
-    this.add.text(
+    // --- Controls hint (always visible at bottom, hidden on mobile) ---
+    const controlsHint = this.add.text(
       this.cameras.main.width / 2, this.cameras.main.height - 8,
       'WASD: Move  |  Click: Shoot  |  Space: Ability  |  P: Portal  |  M: Map',
       { fontFamily: 'monospace', fontSize: '9px', color: '#000000', fontStyle: 'bold',
         stroke: '#ffffff', strokeThickness: 2, backgroundColor: '#ffffffaa',
         padding: { left: 4, right: 4, top: 1, bottom: 1 } },
     ).setOrigin(0.5).setDepth(100);
+
+    // --- Mobile touch controls ---
+    if (InputManager.isMobile) {
+      controlsHint.setVisible(false);
+      this.setupMobileControls();
+    }
 
     // --- Keyboard ---
     this.input.keyboard!.on('keydown-M', () => {
@@ -786,6 +808,188 @@ export class UIScene extends Phaser.Scene {
       ease: 'Power2',
       onComplete: () => t.destroy(),
     });
+  }
+
+  // ---- Mobile touch controls ----
+  private setupMobileControls(): void {
+    const h = this.cameras.main.height;
+    const w = this.cameras.main.width;
+    const joyY = h - 90;
+    // Store joyY for use in handlers (readonly joyY can't be set in create)
+    (this as any)._joyY = joyY;
+
+    // Enable multi-touch
+    this.input.addPointer(2); // allow up to 3 pointers total
+
+    // --- Virtual Joystick (bottom-left) ---
+    this.joystickGfx = this.add.graphics().setDepth(200);
+    this.joystickThumbGfx = this.add.graphics().setDepth(201);
+    this.drawJoystickBase(this.joyX, joyY);
+    this.drawJoystickThumb(this.joyX, joyY);
+
+    // --- Fire button (bottom-right) ---
+    const fireX = w - 70;
+    const fireY = h - 90;
+    (this as any)._fireX = fireX;
+    (this as any)._fireY = fireY;
+
+    this.fireButtonGfx = this.add.graphics().setDepth(200);
+    this.drawFireButton(fireX, fireY, false);
+
+    // --- Ability button (above fire button) ---
+    const abX = w - 130;
+    const abY = h - 90;
+    (this as any)._abX = abX;
+    (this as any)._abY = abY;
+
+    this.abilityButtonGfx = this.add.graphics().setDepth(200);
+    this.drawAbilityButton(abX, abY, false);
+
+    // --- Touch handlers via Phaser pointer events ---
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      const px = pointer.x;
+      const py = pointer.y;
+
+      // Check joystick zone (left half of screen, lower area)
+      if (px < w / 2 && py > h / 2 && this.joystickPointerId === -1) {
+        this.joystickPointerId = pointer.id;
+        this.updateJoystick(pointer);
+        return;
+      }
+
+      // Check fire button
+      const fdx = px - fireX;
+      const fdy = py - fireY;
+      if (fdx * fdx + fdy * fdy < (this.fireRadius + 15) ** 2) {
+        this.firePointerId = pointer.id;
+        InputManager.virtualShoot = true;
+        this.drawFireButton(fireX, fireY, true);
+        return;
+      }
+
+      // Check ability button
+      const adx = px - abX;
+      const ady = py - abY;
+      if (adx * adx + ady * ady < (this.abilityBtnRadius + 15) ** 2) {
+        InputManager.virtualAbility = true;
+        this.drawAbilityButton(abX, abY, true);
+        this.time.delayedCall(150, () => this.drawAbilityButton(abX, abY, false));
+        return;
+      }
+    });
+
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.id === this.joystickPointerId) {
+        this.updateJoystick(pointer);
+      }
+    });
+
+    this.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.id === this.joystickPointerId) {
+        this.joystickPointerId = -1;
+        InputManager.virtualJoystick.x = 0;
+        InputManager.virtualJoystick.y = 0;
+        this.drawJoystickThumb(this.joyX, joyY);
+      }
+      if (pointer.id === this.firePointerId) {
+        this.firePointerId = -1;
+        InputManager.virtualShoot = false;
+        this.drawFireButton(fireX, fireY, false);
+      }
+    });
+  }
+
+  private updateJoystick(pointer: Phaser.Input.Pointer): void {
+    const joyY = (this as any)._joyY as number;
+    const dx = pointer.x - this.joyX;
+    const dy = pointer.y - joyY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxDist = this.joyRadius;
+
+    let normX = dx;
+    let normY = dy;
+
+    if (dist > maxDist) {
+      normX = (dx / dist) * maxDist;
+      normY = (dy / dist) * maxDist;
+    }
+
+    // Set virtual joystick (-1 to 1)
+    InputManager.virtualJoystick.x = normX / maxDist;
+    InputManager.virtualJoystick.y = normY / maxDist;
+
+    // Apply a small deadzone
+    if (dist < 8) {
+      InputManager.virtualJoystick.x = 0;
+      InputManager.virtualJoystick.y = 0;
+      this.drawJoystickThumb(this.joyX, joyY);
+    } else {
+      this.drawJoystickThumb(this.joyX + normX, joyY + normY);
+    }
+  }
+
+  private drawJoystickBase(x: number, y: number): void {
+    const g = this.joystickGfx;
+    g.clear();
+    // Outer ring
+    g.fillStyle(0x000000, 0.3);
+    g.fillCircle(x, y, this.joyRadius);
+    g.lineStyle(2, 0xffffff, 0.4);
+    g.strokeCircle(x, y, this.joyRadius);
+    // Inner deadzone circle
+    g.lineStyle(1, 0xffffff, 0.15);
+    g.strokeCircle(x, y, 8);
+  }
+
+  private drawJoystickThumb(x: number, y: number): void {
+    const g = this.joystickThumbGfx;
+    g.clear();
+    g.fillStyle(0xffffff, 0.5);
+    g.fillCircle(x, y, this.joyThumbR);
+    g.lineStyle(2, 0xffffff, 0.7);
+    g.strokeCircle(x, y, this.joyThumbR);
+  }
+
+  private drawFireButton(x: number, y: number, pressed: boolean): void {
+    const g = this.fireButtonGfx;
+    g.clear();
+    const alpha = pressed ? 0.6 : 0.35;
+    const borderAlpha = pressed ? 0.9 : 0.5;
+    // Red circle for fire
+    g.fillStyle(0xcc3333, alpha);
+    g.fillCircle(x, y, this.fireRadius);
+    g.lineStyle(2, 0xff6666, borderAlpha);
+    g.strokeCircle(x, y, this.fireRadius);
+
+    // Crosshair icon inside
+    const s = 10;
+    g.lineStyle(2, 0xffffff, borderAlpha);
+    g.beginPath(); g.moveTo(x - s, y); g.lineTo(x + s, y); g.strokePath();
+    g.beginPath(); g.moveTo(x, y - s); g.lineTo(x, y + s); g.strokePath();
+    g.lineStyle(1, 0xffffff, borderAlpha * 0.5);
+    g.strokeCircle(x, y, 6);
+  }
+
+  private drawAbilityButton(x: number, y: number, pressed: boolean): void {
+    const g = this.abilityButtonGfx;
+    g.clear();
+    const alpha = pressed ? 0.6 : 0.35;
+    const borderAlpha = pressed ? 0.9 : 0.5;
+    g.fillStyle(0x3355aa, alpha);
+    g.fillCircle(x, y, this.abilityBtnRadius);
+    g.lineStyle(2, 0x6699ff, borderAlpha);
+    g.strokeCircle(x, y, this.abilityBtnRadius);
+
+    // Star/burst icon
+    g.lineStyle(2, 0xffffff, borderAlpha);
+    for (let i = 0; i < 4; i++) {
+      const angle = (i * Math.PI) / 4;
+      const s = 8;
+      g.beginPath();
+      g.moveTo(x + Math.cos(angle) * 3, y + Math.sin(angle) * 3);
+      g.lineTo(x + Math.cos(angle) * s, y + Math.sin(angle) * s);
+      g.strokePath();
+    }
   }
 
   // ---- Panel drawing helper ----

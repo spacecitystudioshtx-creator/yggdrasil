@@ -172,11 +172,15 @@ export class NexusScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     const dt = delta / 1000;
 
-    // Crosshair
-    this.crosshair.setPosition(
-      this.input.activePointer.x,
-      this.input.activePointer.y,
-    );
+    // Crosshair — hide on mobile
+    if (InputManager.isMobile) {
+      this.crosshair.setVisible(false);
+    } else {
+      this.crosshair.setPosition(
+        this.input.activePointer.x,
+        this.input.activePointer.y,
+      );
+    }
 
     // Movement
     this.inputManager.update();
