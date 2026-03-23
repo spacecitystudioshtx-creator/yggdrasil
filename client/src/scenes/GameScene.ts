@@ -88,6 +88,8 @@ export class GameScene extends Phaser.Scene {
   private worldBossDormantLabel: Phaser.GameObjects.Text | null = null;
   private worldBossHomeX: number = 0;  // center of world — Fenrir's fixed lair
   private worldBossHomeY: number = 0;
+  // Progressive reveal: opacity increases as dungeons are cleared (0.15 → 0.35 → 0.55 → 0.75 → 1.0)
+  private worldBossRevealLevel: number = 0; // 0-4 based on dungeons cleared
 
   // Ice wall (flat earth) proximity joke
   private iceWallLabelShown: boolean = false;
@@ -276,8 +278,15 @@ export class GameScene extends Phaser.Scene {
     let aimY: number;
 
     if (InputManager.isMobile) {
-      // Auto-aim at nearest enemy within range
+      // Auto-aim at nearest enemy within range (including world boss)
       const nearby = this.enemyManager.getEnemiesInRange(this.player.x, this.player.y, 400);
+      // Also consider world boss as a target
+      if (this.worldBoss && this.worldBoss.active && this.worldBossAwake) {
+        const bDist = (this.worldBoss.x - this.player.x) ** 2 + (this.worldBoss.y - this.player.y) ** 2;
+        if (bDist < 400 * 400) {
+          nearby.push(this.worldBoss);
+        }
+      }
       if (nearby.length > 0) {
         let nearest = nearby[0];
         let nearestDist = Infinity;
@@ -741,6 +750,9 @@ export class GameScene extends Phaser.Scene {
       if (data.completedDungeonId) {
         const currentIdx = this.DUNGEON_PROGRESSION.findIndex(e => e.dungeonId === data.completedDungeonId);
         this.lastCompletedDungeonIdx = Math.max(this.lastCompletedDungeonIdx, currentIdx);
+
+        // Progressive reveal of Fenrir — each dungeon cleared makes him more visible
+        this.updateFenrirReveal(this.lastCompletedDungeonIdx + 1);
         const next = this.DUNGEON_PROGRESSION[currentIdx + 1];
         if (next) {
           // Remove stale tracking — portal might have been spawned then cleared when entering dungeon
@@ -750,15 +762,14 @@ export class GameScene extends Phaser.Scene {
           this.saveRunState();
           this.emitObjectiveUpdate();
         } else {
-          // All dungeons cleared — apply stat boost for the world boss fight
+          // All dungeons cleared — apply massive stat boost for the world boss fight
           this.events.emit('notification', 'All dungeons cleared!', '#44cc44');
           this.events.emit('notification', '⚡ Power of Yggdrasil granted!', '#ffdd44');
           this.events.emit('notification', 'Head to the CENTER of Midgard...', '#ff8800');
-          this.playerController.maxHp = Math.max(this.playerController.maxHp, 500);
-          this.playerController.hp = this.playerController.maxHp;
-          this.playerController.maxMp = Math.max(this.playerController.maxMp, 200);
-          this.playerController.mp = this.playerController.maxMp;
-          this.playerController.attack = Math.max(this.playerController.attack, 45);
+
+          // Progressive reveal reaches max before awakening
+          this.updateFenrirReveal(4);
+
           this.saveRunState();
           this.emitObjectiveUpdate();
           this.time.delayedCall(2000, () => {
@@ -850,11 +861,16 @@ export class GameScene extends Phaser.Scene {
 
     if (this.startStage >= 4) {
       // All dungeons cleared — awaken Fenrir right away
+      this.updateFenrirReveal(4);
       this.time.delayedCall(1500, () => {
         this.events.emit('notification', 'All dungeons cleared — Fenrir awaits in the center!', '#ffdd44');
         this.spawnWorldBoss();
       });
     } else {
+      // Apply progressive reveal based on how many dungeons were cleared at checkpoint
+      if (this.startStage > 0) {
+        this.time.delayedCall(500, () => this.updateFenrirReveal(this.startStage));
+      }
       // Spawn the correct next portal (index = numCleared)
       const nextPortal = this.DUNGEON_PROGRESSION[numCleared];
       if (nextPortal && !this.spawnedDungeonPortals.has(nextPortal.dungeonId)) {
@@ -968,6 +984,11 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Apply progressive reveal based on restored dungeon progress
+    if (this.lastCompletedDungeonIdx >= 0) {
+      this.time.delayedCall(500, () => this.updateFenrirReveal(this.lastCompletedDungeonIdx + 1));
+    }
+
     this.events.emit('notification', `Run restored — Level ${state.level}`, '#aaddff');
     // Update objective box after state restore
     this.emitObjectiveUpdate();
@@ -1026,19 +1047,20 @@ export class GameScene extends Phaser.Scene {
    */
   private spawnDormantFenrir(): void {
     // Place him at the true center of the world — the dark inner sanctum.
-    // The player starts at 80% from center (outer Frozen Shores) so they won't
-    // encounter Fenrir unless they deliberately navigate all the way to the center.
     const spawnX = this.worldPixelSize * 0.5;
     const spawnY = this.worldPixelSize * 0.5;
     this.worldBossHomeX = spawnX;
     this.worldBossHomeY = spawnY;
 
     this.worldBoss = this.physics.add.sprite(spawnX, spawnY, 'enemy_medium');
-    this.worldBoss.setScale(4.0);
-    this.worldBoss.setTint(0x330011);
+    this.worldBoss.setScale(3.5);
+    this.worldBoss.setTint(0x220011);
     this.worldBoss.setDepth(15);
     this.worldBoss.body!.setSize(30, 30);
-    this.worldBoss.setAlpha(0.85);
+
+    // Progressive reveal: starts as a faint shadow, becomes more visible with each dungeon cleared
+    this.worldBossRevealLevel = 0;
+    this.worldBoss.setAlpha(0.15); // barely visible silhouette
 
     // Dormant state — idle at center, instant-kill on contact, cannot be hurt
     this.worldBossData = {
@@ -1054,14 +1076,89 @@ export class GameScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '11px', color: '#550022',
       stroke: '#000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(50);
+    this.worldBossDormantLabel.setAlpha(0.15);
 
     this.tweens.add({
       targets: this.worldBossDormantLabel,
-      alpha: 0.2,
+      alpha: { from: 0.1, to: 0.25 },
       duration: 1800,
       yoyo: true,
       repeat: -1,
     });
+
+    // Slow, eerie pulsing animation for the dormant boss
+    this.tweens.add({
+      targets: this.worldBoss,
+      scaleX: { from: 3.5, to: 3.8 },
+      scaleY: { from: 3.5, to: 3.8 },
+      duration: 2500,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  /** Progressive reveal: increase Fenrir's visibility as dungeons are cleared */
+  private updateFenrirReveal(dungeonsCleared: number): void {
+    if (!this.worldBoss || this.worldBossAwake) return;
+
+    this.worldBossRevealLevel = Math.min(4, dungeonsCleared);
+    // Opacity: 0.15 → 0.35 → 0.55 → 0.75 → 1.0
+    const alphaSteps = [0.15, 0.35, 0.55, 0.75, 1.0];
+    const targetAlpha = alphaSteps[this.worldBossRevealLevel];
+    // Scale grows slightly: 3.5 → 3.7 → 3.9 → 4.1 → 4.5
+    const scaleSteps = [3.5, 3.7, 3.9, 4.1, 4.5];
+    const targetScale = scaleSteps[this.worldBossRevealLevel];
+    // Tint becomes more vivid: dark shadow → dark red → crimson
+    const tintSteps = [0x220011, 0x440022, 0x660022, 0x880022, 0xaa0033];
+    const targetTint = tintSteps[this.worldBossRevealLevel];
+
+    // Kill existing scale tweens and animate to new state
+    this.tweens.killTweensOf(this.worldBoss);
+    this.tweens.add({
+      targets: this.worldBoss,
+      alpha: targetAlpha,
+      duration: 1500,
+      ease: 'Power2',
+      onComplete: () => {
+        if (this.worldBoss && !this.worldBossAwake) {
+          // Resume subtle pulsing at new scale
+          this.tweens.add({
+            targets: this.worldBoss,
+            scaleX: { from: targetScale, to: targetScale + 0.3 },
+            scaleY: { from: targetScale, to: targetScale + 0.3 },
+            duration: 2500,
+            yoyo: true,
+            repeat: -1,
+            ease: 'Sine.easeInOut',
+          });
+        }
+      },
+    });
+    this.worldBoss.setScale(targetScale);
+    this.worldBoss.setTint(targetTint);
+
+    // Update label too
+    if (this.worldBossDormantLabel) {
+      const labels = ['? ? ?', '? ? ?', 'F E N R I R', 'F E N R I R', 'FENRIR AWAITS'];
+      const colors = ['#550022', '#770033', '#990033', '#cc0044', '#ff2244'];
+      this.worldBossDormantLabel.setText(labels[this.worldBossRevealLevel]);
+      this.worldBossDormantLabel.setColor(colors[this.worldBossRevealLevel]);
+      this.tweens.killTweensOf(this.worldBossDormantLabel);
+      this.tweens.add({
+        targets: this.worldBossDormantLabel,
+        alpha: { from: targetAlpha * 0.5, to: targetAlpha },
+        duration: 1800,
+        yoyo: true,
+        repeat: -1,
+      });
+    }
+
+    // Increase dormant firing intensity as reveal progresses
+    if (this.worldBossData && this.worldBossData.phase === 0) {
+      // More warning shots as Fenrir becomes more visible
+      this.worldBossData.fireCooldown = Math.max(0.5, 3.0 - dungeonsCleared * 0.5);
+    }
   }
 
   /**
@@ -1074,8 +1171,11 @@ export class GameScene extends Phaser.Scene {
     this.worldBossSpawned = true;
     this.worldBossAwake = true;
 
+    // Kill dormant tweens
+    this.tweens.killTweensOf(this.worldBoss);
+
     // Dramatic visual transformation
-    this.worldBoss.setTint(0x880022);
+    this.worldBoss.setTint(0xcc0033);
     this.worldBoss.setAlpha(1.0);
     this.worldBoss.setScale(4.5);
 
@@ -1085,18 +1185,18 @@ export class GameScene extends Phaser.Scene {
       this.worldBossDormantLabel = null;
     }
 
-    // Big level-10 stat boost — the player is now worthy
+    // Massive stat boost for the Fenrir fight — the player is now worthy
     const pc = this.playerController;
-    const boost = 1.8;
+    const boost = 2.5;
     pc.maxHp  = Math.floor(pc.maxHp  * boost);
     pc.hp     = pc.maxHp;
     pc.maxMp  = Math.floor(pc.maxMp  * boost);
     pc.mp     = pc.maxMp;
     pc.attack    = Math.floor(pc.attack    * boost);
     pc.defense   = Math.floor(pc.defense   * boost);
-    pc.speed     = Math.floor(pc.speed     * 1.3);
-    pc.dexterity = Math.floor(pc.dexterity * 1.5);
-    pc.grantInvincibility(3.0);
+    pc.speed     = Math.floor(pc.speed     * 1.5);
+    pc.dexterity = Math.floor(pc.dexterity * 2.0);
+    pc.grantInvincibility(5.0);
 
     // Awaken Fenrir's real HP
     const bossHp = 8000;
@@ -1290,5 +1390,35 @@ export class GameScene extends Phaser.Scene {
       this.scene.stop('GameScene');
       this.scene.start('EndingScene');
     });
+  }
+
+  /** Launch endless dungeon mode (called from EndingScene or checkpoint) */
+  launchEndlessDungeon(): void {
+    const config = {
+      dungeonDef: getDungeon('helheim_sanctum')!, // Start with Helheim theme
+      runeKeyLevel: 0,
+      classId: this.classId,
+      playerHp: this.playerController.hp,
+      playerMp: this.playerController.mp,
+      playerLevel: this.playerController.level,
+      playerXp: this.playerController.xp,
+      playerStats: {
+        attack: this.playerController.attack,
+        defense: this.playerController.defense,
+        speed: this.playerController.speed,
+        dexterity: this.playerController.dexterity,
+        vitality: this.playerController.vitality,
+        wisdom: this.playerController.wisdom,
+        maxHp: this.playerController.maxHp,
+        maxMp: this.playerController.maxMp,
+      },
+      endless: true,
+      endlessFloor: 1,
+    };
+
+    this.musicManager?.playSFX('sfx_portal');
+    this.musicManager?.stopMusic();
+    this.scene.sleep('GameScene');
+    this.scene.start('DungeonScene', config);
   }
 }

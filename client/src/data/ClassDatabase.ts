@@ -103,10 +103,10 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       vitality: 35, wisdom: 15,
     },
     levelGains: {
-      maxHp: 30, maxMp: 5,
-      attack: 1, defense: 2,
-      speed: 1, dexterity: 1,
-      vitality: 3, wisdom: 1,
+      maxHp: 40, maxMp: 8,
+      attack: 3, defense: 3,
+      speed: 2, dexterity: 2,
+      vitality: 4, wisdom: 1,
     },
     statCaps: {
       maxHp: 900, maxMp: 252,
@@ -150,10 +150,10 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       vitality: 15, wisdom: 30,
     },
     levelGains: {
-      maxHp: 15, maxMp: 10,
-      attack: 1, defense: 0,
-      speed: 1, dexterity: 1,
-      vitality: 1, wisdom: 2,
+      maxHp: 20, maxMp: 15,
+      attack: 4, defense: 1,
+      speed: 2, dexterity: 2,
+      vitality: 1, wisdom: 3,
     },
     statCaps: {
       maxHp: 550, maxMp: 385,
@@ -197,10 +197,10 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       vitality: 22, wisdom: 22,
     },
     levelGains: {
-      maxHp: 20, maxMp: 8,
-      attack: 1, defense: 1,
-      speed: 1, dexterity: 1,
-      vitality: 1, wisdom: 1,
+      maxHp: 30, maxMp: 12,
+      attack: 3, defense: 2,
+      speed: 2, dexterity: 2,
+      vitality: 2, wisdom: 2,
     },
     statCaps: {
       maxHp: 670, maxMp: 300,
@@ -244,10 +244,10 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       vitality: 20, wisdom: 10,
     },
     levelGains: {
-      maxHp: 18, maxMp: 3,
-      attack: 2, defense: 0,
-      speed: 1, dexterity: 2,
-      vitality: 1, wisdom: 0,
+      maxHp: 25, maxMp: 5,
+      attack: 5, defense: 1,
+      speed: 2, dexterity: 3,
+      vitality: 2, wisdom: 0,
     },
     statCaps: {
       maxHp: 600, maxMp: 200,
@@ -291,10 +291,10 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       vitality: 20, wisdom: 35,
     },
     levelGains: {
-      maxHp: 15, maxMp: 10,
-      attack: 1, defense: 0,
-      speed: 1, dexterity: 1,
-      vitality: 1, wisdom: 2,
+      maxHp: 20, maxMp: 15,
+      attack: 3, defense: 1,
+      speed: 2, dexterity: 2,
+      vitality: 1, wisdom: 3,
     },
     statCaps: {
       maxHp: 550, maxMp: 385,
@@ -338,9 +338,9 @@ export const CLASS_DEFS: Record<string, ClassDef> = {
       vitality: 18, wisdom: 18,
     },
     levelGains: {
-      maxHp: 15, maxMp: 5,
-      attack: 1, defense: 0,
-      speed: 2, dexterity: 2,
+      maxHp: 20, maxMp: 8,
+      attack: 3, defense: 1,
+      speed: 3, dexterity: 3,
       vitality: 1, wisdom: 1,
     },
     statCaps: {

@@ -162,10 +162,67 @@ export class EndingScene extends Phaser.Scene {
   }
 
   private finish(): void {
-    this.cameras.main.fadeOut(800, 4, 4, 14);
-    this.time.delayedCall(800, () => {
-      this.scene.stop('EndingScene');
-      this.scene.start('CharacterSelectScene');
+    // Show endless mode prompt before returning to character select
+    this.showEndlessPrompt();
+  }
+
+  private showEndlessPrompt(): void {
+    const cx = this.cameras.main.width / 2;
+    const cy = this.cameras.main.height / 2;
+
+    // Darken background
+    const overlay = this.add.graphics().setDepth(100);
+    overlay.fillStyle(0x04040e, 0.9);
+    overlay.fillRect(0, 0, 800, 600);
+
+    this.add.text(cx, cy - 80, 'THE DEPTHS AWAIT', {
+      fontFamily: 'monospace', fontSize: '20px', color: '#ffdd44',
+      stroke: '#000', strokeThickness: 4,
+    }).setOrigin(0.5).setDepth(101);
+
+    this.add.text(cx, cy - 40, 'Fenrir was the lock. What lies beneath?', {
+      fontFamily: 'monospace', fontSize: '11px', color: '#998866',
+    }).setOrigin(0.5).setDepth(101);
+
+    // Endless mode button
+    const endlessBtn = this.add.text(cx, cy + 20, '[ ENTER THE ENDLESS DEPTHS ]', {
+      fontFamily: 'monospace', fontSize: '14px', color: '#cc88ff',
+      stroke: '#000', strokeThickness: 3,
+      backgroundColor: '#1a0033',
+      padding: { left: 16, right: 16, top: 8, bottom: 8 },
+    }).setOrigin(0.5).setDepth(101).setInteractive({ useHandCursor: true });
+
+    endlessBtn.on('pointerover', () => endlessBtn.setColor('#ffaaff'));
+    endlessBtn.on('pointerout', () => endlessBtn.setColor('#cc88ff'));
+    endlessBtn.on('pointerdown', () => {
+      this.cameras.main.fadeOut(600, 4, 4, 14);
+      this.time.delayedCall(600, () => {
+        this.scene.stop('EndingScene');
+        // Return to GameScene which will launch endless mode
+        this.scene.start('CharacterSelectScene', { endlessUnlocked: true });
+      });
+    });
+
+    // New game button
+    const newGameBtn = this.add.text(cx, cy + 80, '[ NEW GAME ]', {
+      fontFamily: 'monospace', fontSize: '12px', color: '#888866',
+      stroke: '#000', strokeThickness: 2,
+    }).setOrigin(0.5).setDepth(101).setInteractive({ useHandCursor: true });
+
+    newGameBtn.on('pointerover', () => newGameBtn.setColor('#ccccaa'));
+    newGameBtn.on('pointerout', () => newGameBtn.setColor('#888866'));
+    newGameBtn.on('pointerdown', () => {
+      this.cameras.main.fadeOut(800, 4, 4, 14);
+      this.time.delayedCall(800, () => {
+        this.scene.stop('EndingScene');
+        this.scene.start('CharacterSelectScene');
+      });
+    });
+
+    // Pulse the endless button
+    this.tweens.add({
+      targets: endlessBtn, alpha: { from: 0.8, to: 1.0 },
+      duration: 1000, yoyo: true, repeat: -1,
     });
   }
 }
