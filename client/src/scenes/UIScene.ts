@@ -613,8 +613,8 @@ export class UIScene extends Phaser.Scene {
     g.clear();
 
     if (d.isDungeon && d.dungeonRooms && d.dungeonRooms.length > 0) {
-      // ---- DUNGEON minimap: draw actual room rectangles ----
-      // Scale so all rooms fit in the minimap circle
+      // ---- DUNGEON minimap: player-centered, map scrolls around player ----
+      // Use a fixed zoom so rooms are large enough to see, centered on the player
       let minRX = Infinity, minRY = Infinity, maxRX = 0, maxRY = 0;
       for (const room of d.dungeonRooms) {
         minRX = Math.min(minRX, room.x);
@@ -624,17 +624,26 @@ export class UIScene extends Phaser.Scene {
       }
       const dungeonW = maxRX - minRX;
       const dungeonH = maxRY - minRY;
-      const dungeonScale = (r * 1.8) / Math.max(dungeonW, dungeonH);
+      // Zoom: show ~600px of dungeon space in the minimap radius (player-local view)
+      const viewRange = 600;
+      const dungeonScale = (r * 1.8) / viewRange;
 
       // Dark background
       g.fillStyle(0x111111, 0.85);
       g.fillCircle(cx, cy, r);
 
+      // Offset: player is always at minimap center
+      const offsetX = d.playerX;
+      const offsetY = d.playerY;
+
       for (const room of d.dungeonRooms) {
-        const rx = cx + (room.x - minRX - dungeonW / 2) * dungeonScale;
-        const ry = cy + (room.y - minRY - dungeonH / 2) * dungeonScale;
+        const rx = cx + (room.x - offsetX) * dungeonScale;
+        const ry = cy + (room.y - offsetY) * dungeonScale;
         const rw = room.w * dungeonScale;
         const rh = room.h * dungeonScale;
+
+        // Skip rooms entirely outside the minimap circle (optimization)
+        if (rx + rw < cx - r - 10 || rx > cx + r + 10 || ry + rh < cy - r - 10 || ry > cy + r + 10) continue;
 
         // Room fill based on type and cleared state
         const roomColor = room.type === 'boss' ? 0xcc3333
@@ -661,26 +670,27 @@ export class UIScene extends Phaser.Scene {
       for (let i = 0; i < d.dungeonRooms.length - 1; i++) {
         const a = d.dungeonRooms[i];
         const b = d.dungeonRooms[i + 1];
-        const ax = cx + (a.x + a.w / 2 - minRX - dungeonW / 2) * dungeonScale;
-        const ay = cy + (a.y + a.h / 2 - minRY - dungeonH / 2) * dungeonScale;
-        const bx = cx + (b.x + b.w / 2 - minRX - dungeonW / 2) * dungeonScale;
-        const by_ = cy + (b.y + b.h / 2 - minRY - dungeonH / 2) * dungeonScale;
+        const ax = cx + (a.x + a.w / 2 - offsetX) * dungeonScale;
+        const ay = cy + (a.y + a.h / 2 - offsetY) * dungeonScale;
+        const bx = cx + (b.x + b.w / 2 - offsetX) * dungeonScale;
+        const by_ = cy + (b.y + b.h / 2 - offsetY) * dungeonScale;
         g.lineStyle(2, 0x334455, 0.7);
         g.beginPath(); g.moveTo(ax, ay); g.lineTo(bx, by_); g.strokePath();
       }
 
-      // Player dot (relative to dungeon space)
-      const pRx = cx + (d.playerX - minRX - dungeonW / 2) * dungeonScale;
-      const pRy = cy + (d.playerY - minRY - dungeonH / 2) * dungeonScale;
+      // Player dot — always at center
       g.fillStyle(0xffffff, 1);
-      g.fillCircle(pRx, pRy, 3);
+      g.fillCircle(cx, cy, 3);
       g.lineStyle(1, 0x000000, 0.8);
-      g.strokeCircle(pRx, pRy, 3);
+      g.strokeCircle(cx, cy, 3);
 
-      // Enemy dots
+      // Enemy dots (relative to player)
       for (const e of d.enemies) {
-        const ex = cx + (e.x - minRX - dungeonW / 2) * dungeonScale;
-        const ey = cy + (e.y - minRY - dungeonH / 2) * dungeonScale;
+        const ex = cx + (e.x - offsetX) * dungeonScale;
+        const ey = cy + (e.y - offsetY) * dungeonScale;
+        // Skip enemies outside minimap circle
+        const dist2 = (ex - cx) * (ex - cx) + (ey - cy) * (ey - cy);
+        if (dist2 > r * r) continue;
         g.fillStyle(0xff4444, 0.9);
         g.fillCircle(ex, ey, 2);
       }
