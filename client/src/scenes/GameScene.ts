@@ -90,6 +90,7 @@ export class GameScene extends Phaser.Scene {
   private worldBossHomeY: number = 0;
   // Progressive reveal: opacity increases as dungeons are cleared (0.15 → 0.35 → 0.55 → 0.75 → 1.0)
   private worldBossRevealLevel: number = 0; // 0-4 based on dungeons cleared
+  private _bossAwakeRetryScheduled: boolean = false;
 
   // Ice wall (flat earth) proximity joke
   private iceWallLabelShown: boolean = false;
@@ -350,6 +351,16 @@ export class GameScene extends Phaser.Scene {
 
     // Ice wall proximity joke — show once when player gets near the edge
     this.checkIceWallProximity();
+
+    // Safety net: if all dungeons cleared but boss still dormant, awaken it
+    if (this.worldBoss && this.worldBoss.active && !this.worldBossAwake
+        && this.lastCompletedDungeonIdx >= 3 && !this._bossAwakeRetryScheduled) {
+      this._bossAwakeRetryScheduled = true;
+      this.time.delayedCall(500, () => {
+        this.spawnWorldBoss();
+        this._bossAwakeRetryScheduled = false;
+      });
+    }
 
     // Update world boss if alive
     if (this.worldBoss && this.worldBoss.active && this.worldBossData) {
