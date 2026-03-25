@@ -10,6 +10,12 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   preload(): void {
+    // Signal loading start to CrazyGames SDK
+    const crazySdk = (window as any).CrazyGames?.SDK;
+    if (crazySdk?.game) {
+      try { crazySdk.game.sdkGameLoadingStart(); } catch (_e) { /* ignore */ }
+    }
+
     const { centerX, centerY } = this.cameras.main;
 
     const title = this.add.text(centerX, centerY - 40, 'YGGDRASIL', {
@@ -59,6 +65,12 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Signal loading complete to CrazyGames SDK
+    const crazySdk = (window as any).CrazyGames?.SDK;
+    if (crazySdk?.game) {
+      try { crazySdk.game.sdkGameLoadingStop(); } catch (_e) { /* ignore */ }
+    }
+
     // Remove loading bar UI before drawing the "press any key" screen
     this.loadingObjs.forEach(o => o.destroy());
     this.loadingObjs = [];

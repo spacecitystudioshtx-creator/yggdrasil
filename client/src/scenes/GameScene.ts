@@ -111,6 +111,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Signal gameplay start to CrazyGames SDK
+    const crazySdk = (window as any).CrazyGames?.SDK;
+    if (crazySdk?.game) {
+      try { crazySdk.game.gameplayStart(); } catch (_e) { /* ignore */ }
+    }
+
     this.worldPixelSize = REALM_SIZE * TILE_SIZE;
 
     // 1. Input manager

@@ -12,6 +12,12 @@ export class EndingScene extends Phaser.Scene {
   }
 
   create(): void {
+    // Signal gameplay stop to CrazyGames SDK
+    const crazySdk = (window as any).CrazyGames?.SDK;
+    if (crazySdk?.game) {
+      try { crazySdk.game.gameplayStop(); } catch (_e) { /* ignore */ }
+    }
+
     const cx = this.cameras.main.width / 2;
 
     // Dark background
