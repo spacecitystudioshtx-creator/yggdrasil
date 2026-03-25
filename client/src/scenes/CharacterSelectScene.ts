@@ -376,14 +376,13 @@ export class CharacterSelectScene extends Phaser.Scene {
   private confirmSelection(): void {
     const cls = this.classes[this.selectedIndex];
     const pm = new ProgressManager();
-    const highestStage = pm.getHighestStage(cls.id);
     const runState = pm.loadRunState(cls.id);
 
     // Build full option list: Start Over → all dungeons → Continue
-    // ALL stages are always shown; locked ones are greyed out
+    // ALL stages are always selectable (white) — they're starting points, not locked content
     const allOptions: StageCheckpoint[] = [];
 
-    // Stage 0 = fresh start (always far left)
+    // Stage 0 = fresh start (far left)
     allOptions.push({
       stageIndex: 0,
       label: 'Start Over',
@@ -391,7 +390,7 @@ export class CharacterSelectScene extends Phaser.Scene {
       description: 'Begin a fresh run from level 1.',
     });
 
-    // All dungeon checkpoints (stages 1-4) — always visible, locked if not unlocked
+    // All dungeon checkpoints (stages 1-4) — always available
     for (const cp of STAGE_CHECKPOINTS) {
       if (cp.stageIndex >= 1) {
         allOptions.push(cp);
@@ -408,8 +407,9 @@ export class CharacterSelectScene extends Phaser.Scene {
       });
     }
 
-    // If only Start Over is available (no other stages, no saved run), skip overlay
-    if (allOptions.length === 1) {
+    // If only Start Over is available (no saved run), skip overlay
+    if (allOptions.length <= 5 && !(runState && runState.level > 1)) {
+      // First time playing — go straight in
       this.launchGame(cls.id, 0);
       return;
     }
@@ -417,10 +417,10 @@ export class CharacterSelectScene extends Phaser.Scene {
     // Default selection: Continue if available, otherwise Start Over
     const defaultIdx = runState && runState.level > 1 ? allOptions.length - 1 : 0;
 
-    this.showStageSelect(cls, allOptions, highestStage, defaultIdx);
+    this.showStageSelect(cls, allOptions, defaultIdx);
   }
 
-  private showStageSelect(cls: ClassDef, checkpoints: StageCheckpoint[], highestStage: number, defaultIdx: number = 0): void {
+  private showStageSelect(cls: ClassDef, checkpoints: StageCheckpoint[], defaultIdx: number = 0): void {
     this.stageSelectedIndex = defaultIdx;
     this.stageCheckpoints = checkpoints;
     this.stageCards = [];
@@ -471,15 +471,12 @@ export class CharacterSelectScene extends Phaser.Scene {
     const circleY = py + 74;
     const circleR = 20;
 
-    // Draw connecting lines first (behind circles)
+    // Draw connecting lines (behind circles)
     const lineGfx = this.add.graphics();
     for (let i = 0; i < circleCount - 1; i++) {
       const x1 = pathStartX + i * circleSpacing;
       const x2 = pathStartX + (i + 1) * circleSpacing;
-      const cp2 = checkpoints[i + 1];
-      const nextStage = cp2.stageIndex === 99 ? highestStage : cp2.stageIndex;
-      const nextUnlocked = nextStage <= highestStage;
-      lineGfx.lineStyle(3, nextUnlocked ? 0x5aaa44 : 0xb0c8a8, nextUnlocked ? 0.7 : 0.35);
+      lineGfx.lineStyle(3, 0x5aaa44, 0.7);
       lineGfx.beginPath();
       lineGfx.moveTo(x1 + circleR + 3, circleY);
       lineGfx.lineTo(x2 - circleR - 3, circleY);
@@ -487,14 +484,12 @@ export class CharacterSelectScene extends Phaser.Scene {
     }
     this.stageOverlay!.add(lineGfx);
 
-    // Draw circles and labels
+    // Draw circles and labels — ALL circles are white and selectable
     for (let i = 0; i < circleCount; i++) {
       const cp = checkpoints[i];
       const cx = pathStartX + i * circleSpacing;
       const isSelected = i === this.stageSelectedIndex;
       const isContinue = cp.stageIndex === 99;
-      const stageIdx = isContinue ? highestStage : cp.stageIndex;
-      const isUnlocked = stageIdx <= highestStage;
 
       const circleGfx = this.add.graphics();
 
@@ -514,20 +509,16 @@ export class CharacterSelectScene extends Phaser.Scene {
         circleGfx.strokePath();
         circleGfx.fillStyle(0xee3322, 1);
         circleGfx.fillTriangle(cx, circleY - circleR - 14, cx + 10, circleY - circleR - 11, cx, circleY - circleR - 8);
-      } else if (isUnlocked) {
+      } else {
+        // Unselected — white circle with green border
         circleGfx.fillStyle(0xf0f8ee, 1);
         circleGfx.fillCircle(cx, circleY, circleR - 2);
         circleGfx.lineStyle(2, 0x5aaa44, 0.8);
         circleGfx.strokeCircle(cx, circleY, circleR - 2);
-      } else {
-        circleGfx.fillStyle(0xc8c8c0, 0.4);
-        circleGfx.fillCircle(cx, circleY, circleR - 3);
-        circleGfx.lineStyle(1, 0xa0a098, 0.4);
-        circleGfx.strokeCircle(cx, circleY, circleR - 3);
       }
       this.stageOverlay!.add(circleGfx);
 
-      // Level number inside circle (or label for special entries)
+      // Level number inside circle
       let circleText: string;
       if (isContinue) {
         circleText = `${cp.startLevel}`;
@@ -540,7 +531,7 @@ export class CharacterSelectScene extends Phaser.Scene {
         fontFamily: 'monospace',
         fontSize: isSelected ? '10px' : '8px',
         fontStyle: 'bold',
-        color: isSelected ? '#2a5a22' : (isUnlocked ? '#4a7a3a' : '#a0a098'),
+        color: isSelected ? '#2a5a22' : '#4a7a3a',
       }).setOrigin(0.5));
 
       // Name below circle
@@ -548,26 +539,22 @@ export class CharacterSelectScene extends Phaser.Scene {
       const name = names[cp.stageIndex] ?? '';
       this.stageOverlay!.add(this.add.text(cx, circleY + circleR + 8, name, {
         fontFamily: 'monospace', fontSize: '7px',
-        color: isSelected ? '#2a5a22' : (isUnlocked ? '#6a8a5a' : '#a0a098'),
+        color: isSelected ? '#2a5a22' : '#6a8a5a',
       }).setOrigin(0.5));
     }
 
-    // Add click zones LAST so they're on top
+    // Add click zones LAST so they're on top — all circles are clickable
     for (let i = 0; i < circleCount; i++) {
       const cx = pathStartX + i * circleSpacing;
-      const cp = checkpoints[i];
-      const stageIdx = cp.stageIndex === 99 ? highestStage : cp.stageIndex;
-      const isUnlocked = stageIdx <= highestStage;
 
       const zone = this.add.zone(cx, circleY, circleR * 2 + 14, circleR * 2 + 24);
-      zone.setInteractive({ useHandCursor: isUnlocked });
+      zone.setInteractive({ useHandCursor: true });
       zone.on('pointerdown', () => {
-        if (!isUnlocked) return; // can't select locked stages
         if (i === this.stageSelectedIndex) {
           this.confirmStageAndLaunch(cls);
         } else {
           this.stageSelectedIndex = i;
-          this.refreshStageCards(cls, highestStage);
+          this.refreshStageCards(cls);
         }
       });
       this.stageOverlay!.add(zone);
@@ -602,15 +589,11 @@ export class CharacterSelectScene extends Phaser.Scene {
     // Keyboard navigation
     if (this.input.keyboard) {
       const navigate = (dir: number) => {
-        // Skip locked stages
-        let next = this.stageSelectedIndex + dir;
-        while (next >= 0 && next < this.stageCheckpoints.length) {
-          const cp = this.stageCheckpoints[next];
-          const si = cp.stageIndex === 99 ? highestStage : cp.stageIndex;
-          if (si <= highestStage) { this.stageSelectedIndex = next; break; }
-          next += dir;
+        const next = this.stageSelectedIndex + dir;
+        if (next >= 0 && next < this.stageCheckpoints.length) {
+          this.stageSelectedIndex = next;
         }
-        this.refreshStageCards(cls, highestStage);
+        this.refreshStageCards(cls);
       };
       const upKey    = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
       const downKey  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
@@ -634,13 +617,12 @@ export class CharacterSelectScene extends Phaser.Scene {
     }
   }
 
-  private refreshStageCards(cls?: ClassDef, highestStage?: number): void {
+  private refreshStageCards(cls?: ClassDef): void {
     if (!this.stageOverlay) return;
     const c = cls ?? this.classes[this.selectedIndex];
-    const hs = highestStage ?? new ProgressManager().getHighestStage(c.id);
     this.stageOverlay.destroy();
     this.stageOverlay = null;
-    this.showStageSelect(c, this.stageCheckpoints, hs, this.stageSelectedIndex);
+    this.showStageSelect(c, this.stageCheckpoints, this.stageSelectedIndex);
   }
 
   private confirmStageAndLaunch(cls: ClassDef): void {
