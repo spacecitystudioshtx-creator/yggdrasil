@@ -376,48 +376,52 @@ export class CharacterSelectScene extends Phaser.Scene {
   private confirmSelection(): void {
     const cls = this.classes[this.selectedIndex];
     const pm = new ProgressManager();
-    const unlocked = pm.getUnlockedCheckpoints(cls.id);
+    const highestStage = pm.getHighestStage(cls.id);
     const runState = pm.loadRunState(cls.id);
 
-    // Build option list: "Continue" first (if run exists), then unlocked checkpoints
+    // Build full option list: Start Over → all dungeons → Continue
+    // ALL stages are always shown; locked ones are greyed out
     const allOptions: StageCheckpoint[] = [];
 
-    // "Continue" is a sentinel entry (stageIndex 99) — always at the top
+    // Stage 0 = fresh start (always far left)
+    allOptions.push({
+      stageIndex: 0,
+      label: 'Start Over',
+      startLevel: 1,
+      description: 'Begin a fresh run from level 1.',
+    });
+
+    // All dungeon checkpoints (stages 1-4) — always visible, locked if not unlocked
+    for (const cp of STAGE_CHECKPOINTS) {
+      if (cp.stageIndex >= 1) {
+        allOptions.push(cp);
+      }
+    }
+
+    // "Continue" at the far right (if a saved run exists)
     if (runState && runState.level > 1) {
       allOptions.push({
         stageIndex: 99,  // sentinel — detected in confirmStageAndLaunch
-        label: `► Continue  (Lv.${runState.level})`,
+        label: `Continue  (Lv.${runState.level})`,
         startLevel: runState.level,
         description: `Resume your run at level ${runState.level}.`,
       });
     }
 
-    // Unlocked checkpoints (stage 0 = Midgard is always here)
-    for (const cp of unlocked) {
-      // Rename stage 0 to make clear it's a fresh start when Continue is present
-      if (cp.stageIndex === 0 && allOptions.length > 0) {
-        allOptions.push({
-          ...cp,
-          label: 'Midgard  (Fresh Start)',
-          description: 'Start over from level 1.',
-        });
-      } else {
-        allOptions.push(cp);
-      }
-    }
-
-    // If only Midgard and no run state, skip overlay and go straight in
-    if (allOptions.length === 1 && allOptions[0].stageIndex === 0) {
+    // If only Start Over is available (no other stages, no saved run), skip overlay
+    if (allOptions.length === 1) {
       this.launchGame(cls.id, 0);
       return;
     }
 
-    // Show Mario World-style stage select
-    this.showStageSelect(cls, allOptions);
+    // Default selection: Continue if available, otherwise Start Over
+    const defaultIdx = runState && runState.level > 1 ? allOptions.length - 1 : 0;
+
+    this.showStageSelect(cls, allOptions, highestStage, defaultIdx);
   }
 
-  private showStageSelect(cls: ClassDef, checkpoints: StageCheckpoint[]): void {
-    this.stageSelectedIndex = 0;
+  private showStageSelect(cls: ClassDef, checkpoints: StageCheckpoint[], highestStage: number, defaultIdx: number = 0): void {
+    this.stageSelectedIndex = defaultIdx;
     this.stageCheckpoints = checkpoints;
     this.stageCards = [];
 
@@ -428,25 +432,25 @@ export class CharacterSelectScene extends Phaser.Scene {
 
     // --- Coffee Golf tour-style: green field with selectable level circles ---
 
-    // Dim backdrop with green tint
+    // Full-screen backdrop blocks background clicks
     const backdrop = this.add.graphics();
     backdrop.fillStyle(0x0a1a0a, 0.78);
     backdrop.fillRect(0, 0, 800, 600);
     this.stageOverlay.add(backdrop);
+    // Make backdrop interactive to eat clicks behind the overlay
+    const backdropZone = this.add.zone(400, 300, 800, 600).setInteractive();
+    this.stageOverlay.add(backdropZone);
 
-    // Green field panel — clean, soft, like a golf course scorecard
-    const pw = 540, ph = 220;
-    const px = 400 - pw / 2, py = 190;
+    // Green field panel
+    const pw = 580, ph = 230;
+    const px = 400 - pw / 2, py = 185;
     const panel = this.add.graphics();
-    // Soft green outer border
     panel.fillStyle(0x3a6e32); panel.fillRect(px, py, pw, ph);
-    // Lighter green inner
     panel.fillStyle(0x4a8a40); panel.fillRect(px + 2, py + 2, pw - 4, ph - 4);
-    // Clean white-green field interior
     panel.fillStyle(0xe8f4e0, 0.96); panel.fillRect(px + 4, py + 4, pw - 8, ph - 8);
     this.stageOverlay.add(panel);
 
-    // Subtle grass stripe texture (decorative horizontal lines)
+    // Grass stripe texture
     const stripes = this.add.graphics();
     for (let sy = py + 14; sy < py + ph - 10; sy += 12) {
       stripes.fillStyle(0xd4eacc, 0.4);
@@ -454,21 +458,36 @@ export class CharacterSelectScene extends Phaser.Scene {
     }
     this.stageOverlay.add(stripes);
 
-    // Title — green on white
+    // Title
     this.stageOverlay.add(this.add.text(400, py + 18, cls.name, {
       fontFamily: 'monospace', fontSize: '15px', fontStyle: 'bold', color: '#2a5a22',
     }).setOrigin(0.5));
 
-    // --- Selectable circle path across the field ---
-    const pm2 = new ProgressManager();
-    const highestStage = pm2.getHighestStage(cls.id);
+    // --- Circle path ---
     const circleCount = checkpoints.length;
-    const circleSpacing = Math.min(95, Math.floor((pw - 90) / Math.max(1, circleCount - 1)));
+    const circleSpacing = Math.min(80, Math.floor((pw - 100) / Math.max(1, circleCount - 1)));
     const totalPathW = (circleCount - 1) * circleSpacing;
     const pathStartX = 400 - totalPathW / 2;
-    const circleY = py + 72;
-    const circleR = 22;
+    const circleY = py + 74;
+    const circleR = 20;
 
+    // Draw connecting lines first (behind circles)
+    const lineGfx = this.add.graphics();
+    for (let i = 0; i < circleCount - 1; i++) {
+      const x1 = pathStartX + i * circleSpacing;
+      const x2 = pathStartX + (i + 1) * circleSpacing;
+      const cp2 = checkpoints[i + 1];
+      const nextStage = cp2.stageIndex === 99 ? highestStage : cp2.stageIndex;
+      const nextUnlocked = nextStage <= highestStage;
+      lineGfx.lineStyle(3, nextUnlocked ? 0x5aaa44 : 0xb0c8a8, nextUnlocked ? 0.7 : 0.35);
+      lineGfx.beginPath();
+      lineGfx.moveTo(x1 + circleR + 3, circleY);
+      lineGfx.lineTo(x2 - circleR - 3, circleY);
+      lineGfx.strokePath();
+    }
+    this.stageOverlay!.add(lineGfx);
+
+    // Draw circles and labels
     for (let i = 0; i < circleCount; i++) {
       const cp = checkpoints[i];
       const cx = pathStartX + i * circleSpacing;
@@ -479,101 +498,96 @@ export class CharacterSelectScene extends Phaser.Scene {
 
       const circleGfx = this.add.graphics();
 
-      // Connecting path line — like a fairway trail
-      if (i < circleCount - 1) {
-        const nextX = pathStartX + (i + 1) * circleSpacing;
-        const nextUnlocked = (checkpoints[i + 1].stageIndex === 99 ? highestStage : checkpoints[i + 1].stageIndex) <= highestStage;
-        // Dashed path effect
-        circleGfx.lineStyle(3, nextUnlocked ? 0x5aaa44 : 0xb0c8a8, nextUnlocked ? 0.7 : 0.35);
-        circleGfx.beginPath();
-        circleGfx.moveTo(cx + circleR + 3, circleY);
-        circleGfx.lineTo(nextX - circleR - 3, circleY);
-        circleGfx.strokePath();
-      }
-
       if (isSelected) {
-        // Selected — bright white circle with green glow, like a golf hole flag
+        // Selected — white with green glow + flag
         circleGfx.fillStyle(0x4aaa3a, 0.25);
         circleGfx.fillCircle(cx, circleY, circleR + 8);
         circleGfx.fillStyle(0xffffff, 1);
         circleGfx.fillCircle(cx, circleY, circleR);
         circleGfx.lineStyle(3, 0x3a7a2a, 1);
         circleGfx.strokeCircle(cx, circleY, circleR);
-        // Flag pole above
+        // Flag
         circleGfx.lineStyle(2, 0x5a4030, 1);
         circleGfx.beginPath();
         circleGfx.moveTo(cx, circleY - circleR);
-        circleGfx.lineTo(cx, circleY - circleR - 16);
+        circleGfx.lineTo(cx, circleY - circleR - 14);
         circleGfx.strokePath();
-        // Small red flag
         circleGfx.fillStyle(0xee3322, 1);
-        circleGfx.fillTriangle(cx, circleY - circleR - 16, cx + 12, circleY - circleR - 13, cx, circleY - circleR - 10);
+        circleGfx.fillTriangle(cx, circleY - circleR - 14, cx + 10, circleY - circleR - 11, cx, circleY - circleR - 8);
       } else if (isUnlocked) {
-        // Unlocked — soft white circle with green border
         circleGfx.fillStyle(0xf0f8ee, 1);
-        circleGfx.fillCircle(cx, circleY, circleR - 3);
+        circleGfx.fillCircle(cx, circleY, circleR - 2);
         circleGfx.lineStyle(2, 0x5aaa44, 0.8);
-        circleGfx.strokeCircle(cx, circleY, circleR - 3);
+        circleGfx.strokeCircle(cx, circleY, circleR - 2);
       } else {
-        // Locked — dim grey
-        circleGfx.fillStyle(0xc8c8c0, 0.45);
-        circleGfx.fillCircle(cx, circleY, circleR - 5);
+        circleGfx.fillStyle(0xc8c8c0, 0.4);
+        circleGfx.fillCircle(cx, circleY, circleR - 3);
         circleGfx.lineStyle(1, 0xa0a098, 0.4);
-        circleGfx.strokeCircle(cx, circleY, circleR - 5);
+        circleGfx.strokeCircle(cx, circleY, circleR - 3);
       }
       this.stageOverlay!.add(circleGfx);
 
-      // Circle label inside
-      const shortLabels = checkpoints.map(c => {
-        if (c.stageIndex === 99) return 'RUN';
-        if (c.stageIndex === 0) return 'NEW';
-        return ['', 'I', 'II', 'III', 'IV'][c.stageIndex] ?? `${c.stageIndex}`;
-      });
-      const circleLabel = this.add.text(cx, circleY + 1, shortLabels[i], {
+      // Level number inside circle (or label for special entries)
+      let circleText: string;
+      if (isContinue) {
+        circleText = `${cp.startLevel}`;
+      } else if (cp.stageIndex === 0) {
+        circleText = 'Lv.1';
+      } else {
+        circleText = `Lv.${cp.startLevel}`;
+      }
+      this.stageOverlay!.add(this.add.text(cx, circleY + 1, circleText, {
         fontFamily: 'monospace',
-        fontSize: isSelected ? '12px' : '9px',
+        fontSize: isSelected ? '10px' : '8px',
         fontStyle: 'bold',
         color: isSelected ? '#2a5a22' : (isUnlocked ? '#4a7a3a' : '#a0a098'),
-      }).setOrigin(0.5);
-      this.stageOverlay!.add(circleLabel);
-
-      // Stage name below
-      const shortName = isContinue ? 'Continue' : ['Midgard', 'Frost', 'Verdant', 'Forge', 'Helheim'][stageIdx] ?? '';
-      this.stageOverlay!.add(this.add.text(cx, circleY + circleR + 8, shortName, {
-        fontFamily: 'monospace', fontSize: '7px',
-        color: isSelected ? '#2a5a22' : '#6a8a5a',
       }).setOrigin(0.5));
 
-      // Clickable zone
-      const zone = this.add.zone(cx, circleY, circleR * 2 + 12, circleR * 2 + 12);
-      zone.setInteractive({ useHandCursor: true });
-      zone.on('pointerup', () => {
+      // Name below circle
+      const names: Record<number, string> = { 0: 'New Game', 1: 'Frostheim', 2: 'Verdant', 3: 'Muspelheim', 4: 'Helheim', 99: 'Continue' };
+      const name = names[cp.stageIndex] ?? '';
+      this.stageOverlay!.add(this.add.text(cx, circleY + circleR + 8, name, {
+        fontFamily: 'monospace', fontSize: '7px',
+        color: isSelected ? '#2a5a22' : (isUnlocked ? '#6a8a5a' : '#a0a098'),
+      }).setOrigin(0.5));
+    }
+
+    // Add click zones LAST so they're on top
+    for (let i = 0; i < circleCount; i++) {
+      const cx = pathStartX + i * circleSpacing;
+      const cp = checkpoints[i];
+      const stageIdx = cp.stageIndex === 99 ? highestStage : cp.stageIndex;
+      const isUnlocked = stageIdx <= highestStage;
+
+      const zone = this.add.zone(cx, circleY, circleR * 2 + 14, circleR * 2 + 24);
+      zone.setInteractive({ useHandCursor: isUnlocked });
+      zone.on('pointerdown', () => {
+        if (!isUnlocked) return; // can't select locked stages
         if (i === this.stageSelectedIndex) {
           this.confirmStageAndLaunch(cls);
         } else {
           this.stageSelectedIndex = i;
-          this.refreshStageCards(cls);
+          this.refreshStageCards(cls, highestStage);
         }
       });
       this.stageOverlay!.add(zone);
     }
 
-    // --- Info panel below circles ---
+    // --- Info card below circles ---
     const sel = checkpoints[this.stageSelectedIndex];
     const infoY = circleY + circleR + 28;
 
-    // Info card with subtle green background
     const infoCard = this.add.graphics();
     infoCard.fillStyle(0xd8eed0, 0.6);
-    infoCard.fillRect(px + 40, infoY - 6, pw - 80, 56);
+    infoCard.fillRect(px + 30, infoY - 4, pw - 60, 52);
     infoCard.lineStyle(1, 0x7aaa6a, 0.5);
-    infoCard.strokeRect(px + 40, infoY - 6, pw - 80, 56);
+    infoCard.strokeRect(px + 30, infoY - 4, pw - 60, 52);
     this.stageOverlay.add(infoCard);
 
-    this.stageOverlay.add(this.add.text(400, infoY + 4, sel.label, {
+    this.stageOverlay.add(this.add.text(400, infoY + 6, sel.label, {
       fontFamily: 'monospace', fontSize: '13px', fontStyle: 'bold', color: '#2a5a22',
     }).setOrigin(0.5));
-    this.stageOverlay.add(this.add.text(400, infoY + 22, sel.description, {
+    this.stageOverlay.add(this.add.text(400, infoY + 24, sel.description, {
       fontFamily: 'monospace', fontSize: '9px', color: '#4a6a3a',
     }).setOrigin(0.5));
     this.stageOverlay.add(this.add.text(400, infoY + 38, `Starting Level: ${sel.startLevel}`, {
@@ -581,15 +595,22 @@ export class CharacterSelectScene extends Phaser.Scene {
     }).setOrigin(0.5));
 
     // Nav hint
-    this.stageOverlay.add(this.add.text(400, infoY + 62, '< >  navigate   ENTER  play   ESC  back', {
+    this.stageOverlay.add(this.add.text(400, infoY + 60, '< >  navigate   ENTER  play   ESC  back', {
       fontFamily: 'monospace', fontSize: '7px', color: '#7a9a6a',
     }).setOrigin(0.5));
 
-    // Keyboard navigation — LEFT/RIGHT between circles, ENTER to confirm
+    // Keyboard navigation
     if (this.input.keyboard) {
       const navigate = (dir: number) => {
-        this.stageSelectedIndex = Math.max(0, Math.min(this.stageCheckpoints.length - 1, this.stageSelectedIndex + dir));
-        this.refreshStageCards(cls);
+        // Skip locked stages
+        let next = this.stageSelectedIndex + dir;
+        while (next >= 0 && next < this.stageCheckpoints.length) {
+          const cp = this.stageCheckpoints[next];
+          const si = cp.stageIndex === 99 ? highestStage : cp.stageIndex;
+          if (si <= highestStage) { this.stageSelectedIndex = next; break; }
+          next += dir;
+        }
+        this.refreshStageCards(cls, highestStage);
       };
       const upKey    = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
       const downKey  = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
@@ -613,12 +634,13 @@ export class CharacterSelectScene extends Phaser.Scene {
     }
   }
 
-  private refreshStageCards(cls?: ClassDef): void {
+  private refreshStageCards(cls?: ClassDef, highestStage?: number): void {
     if (!this.stageOverlay) return;
     const c = cls ?? this.classes[this.selectedIndex];
+    const hs = highestStage ?? new ProgressManager().getHighestStage(c.id);
     this.stageOverlay.destroy();
     this.stageOverlay = null;
-    this.showStageSelect(c, this.stageCheckpoints);
+    this.showStageSelect(c, this.stageCheckpoints, hs, this.stageSelectedIndex);
   }
 
   private confirmStageAndLaunch(cls: ClassDef): void {

@@ -353,13 +353,14 @@ export class GameScene extends Phaser.Scene {
     this.checkIceWallProximity();
 
     // Safety net: if all dungeons cleared but boss still dormant, awaken it
-    if (this.worldBoss && this.worldBoss.active && !this.worldBossAwake
-        && this.lastCompletedDungeonIdx >= 3 && !this._bossAwakeRetryScheduled) {
-      this._bossAwakeRetryScheduled = true;
-      this.time.delayedCall(500, () => {
+    // Check both lastCompletedDungeonIdx AND spawnedDungeonPortals (covers all save formats)
+    if (this.worldBoss && this.worldBoss.active && !this.worldBossAwake && !this._bossAwakeRetryScheduled) {
+      const allDungeonsCleared = this.lastCompletedDungeonIdx >= 3
+        || this.DUNGEON_PROGRESSION.every(e => this.spawnedDungeonPortals.has(e.dungeonId));
+      if (allDungeonsCleared) {
+        this._bossAwakeRetryScheduled = true;
         this.spawnWorldBoss();
-        this._bossAwakeRetryScheduled = false;
-      });
+      }
     }
 
     // Update world boss if alive
@@ -965,6 +966,16 @@ export class GameScene extends Phaser.Scene {
     // Restore last completed dungeon index
     if (state.lastCompletedDungeonIdx !== undefined) {
       this.lastCompletedDungeonIdx = state.lastCompletedDungeonIdx;
+    }
+
+    // Fallback: derive lastCompletedDungeonIdx from spawnedDungeonPortals for older saves
+    if (this.lastCompletedDungeonIdx < 0) {
+      for (let i = this.DUNGEON_PROGRESSION.length - 1; i >= 0; i--) {
+        if (this.spawnedDungeonPortals.has(this.DUNGEON_PROGRESSION[i].dungeonId)) {
+          this.lastCompletedDungeonIdx = i;
+          break;
+        }
+      }
     }
 
     // Spawn the correct next dungeon portal if not yet spawned
