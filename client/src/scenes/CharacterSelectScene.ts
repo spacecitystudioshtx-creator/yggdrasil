@@ -586,6 +586,28 @@ export class CharacterSelectScene extends Phaser.Scene {
       fontFamily: 'monospace', fontSize: '7px', color: '#7a9a6a',
     }).setOrigin(0.5));
 
+    // Back button
+    const backBtnX = px + 16;
+    const backBtnY = py + ph - 30;
+    const backBtn = this.add.graphics();
+    backBtn.fillStyle(0x886655, 0.9);
+    backBtn.fillRect(backBtnX, backBtnY, 70, 22);
+    backBtn.fillStyle(0xaa8866, 0.9);
+    backBtn.fillRect(backBtnX + 1, backBtnY + 1, 68, 20);
+    this.stageOverlay.add(backBtn);
+    this.stageOverlay.add(this.add.text(backBtnX + 35, backBtnY + 10, '< Back', {
+      fontFamily: 'monospace', fontSize: '9px', color: '#ffffff',
+    }).setOrigin(0.5));
+    const backZone = this.add.zone(backBtnX + 35, backBtnY + 11, 70, 22);
+    backZone.setInteractive({ useHandCursor: true });
+    backZone.on('pointerdown', () => {
+      this.stageOverlay?.destroy();
+      this.stageOverlay = null;
+      this.stageKeys.forEach(k => k.destroy());
+      this.stageKeys = [];
+    });
+    this.stageOverlay.add(backZone);
+
     // Keyboard navigation
     if (this.input.keyboard) {
       const navigate = (dir: number) => {

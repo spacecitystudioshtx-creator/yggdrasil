@@ -1339,11 +1339,23 @@ export class GameScene extends Phaser.Scene {
       this.events.emit('notification', 'FENRIR GOES BERSERK!', '#ff0000');
     }
 
-    // Chase player
+    // Chase player if in range, otherwise return to center
+    const chaseRange = 350;
     const speed = 55 + bd.phase * 20;
     const angle = angleBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
     const dist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
-    if (dist > 80) {
+    const homeDist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.worldBossHomeX, this.worldBossHomeY);
+
+    if (this.playerController.isDead || dist > chaseRange) {
+      // Return to center when player is dead or out of range
+      if (homeDist > 10) {
+        const homeAngle = angleBetween(this.worldBoss.x, this.worldBoss.y, this.worldBossHomeX, this.worldBossHomeY);
+        const returnSpeed = Math.min(homeDist * 2, speed);
+        this.worldBoss.setVelocity(Math.cos(homeAngle) * returnSpeed, Math.sin(homeAngle) * returnSpeed);
+      } else {
+        this.worldBoss.setVelocity(0, 0);
+      }
+    } else if (dist > 80) {
       this.worldBoss.setVelocity(Math.cos(angle) * speed, Math.sin(angle) * speed);
     } else {
       this.worldBoss.setVelocity(0, 0);
