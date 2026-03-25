@@ -471,7 +471,11 @@ export class GameScene extends Phaser.Scene {
 
     this.projectileManager.deactivateProjectile(projectile, false);
 
-    const damage = projectile.getData('damage') ?? 10;
+    let damage = projectile.getData('damage') ?? 10;
+    // Boss projectiles use sentinel -1: deal 10% of player max HP
+    if (damage < 0) {
+      damage = Math.floor(this.playerController.maxHp * 0.10);
+    }
     this.playerController.takeDamage(damage);
     this.musicManager?.playSFX('sfx_player_hit');
 
@@ -1246,6 +1250,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(201).setScrollFactor(0);
 
     // Wire projectiles to damage Fenrir now that he's awake
+    // Each hit does 5% of Fenrir's max HP regardless of player stats
     this.physics.add.overlap(
       this.projectileManager.playerProjectiles,
       this.worldBoss,
@@ -1254,8 +1259,8 @@ export class GameScene extends Phaser.Scene {
         const proj = projObj as Phaser.Physics.Arcade.Sprite;
         if (!proj.active) return;
         this.projectileManager.deactivateProjectile(proj, true);
-        const dmg = Math.floor(pc.getAttackDamage() * (proj.getData('damageMultiplier') ?? 1));
         if (this.worldBossData) {
+          const dmg = Math.floor(this.worldBossData.maxHp * 0.05);
           this.worldBossData.hp -= dmg;
           this.worldBoss!.setTint(0xffffff);
           this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
@@ -1297,7 +1302,7 @@ export class GameScene extends Phaser.Scene {
 
       const dormantDist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
 
-      // Instant-kill on contact — dormant Fenrir is a death sentence
+      // Dormant contact = instant-kill (player shouldn't be here before clearing dungeons)
       if (dormantDist < 32 && !this.playerController.isInvincible && !this.playerController.isDead) {
         this.playerController.takeDamage(this.playerController.maxHp * 20);
       }
@@ -1344,9 +1349,9 @@ export class GameScene extends Phaser.Scene {
       this.worldBoss.setVelocity(0, 0);
     }
 
-    // Contact = instant kill even while awake (you must dodge)
+    // Contact damage — 10% of player max HP (painful but survivable)
     if (dist < 32 && !this.playerController.isInvincible && !this.playerController.isDead) {
-      this.playerController.takeDamage(this.playerController.maxHp * 10);
+      this.playerController.takeDamage(Math.floor(this.playerController.maxHp * 0.10));
     }
 
     // Bullet patterns — escalating
@@ -1359,21 +1364,21 @@ export class GameScene extends Phaser.Scene {
       if (bd.phase === 1) {
         for (let i = 0; i < 12; i++) {
           const a = (Math.PI * 2 / 12) * i + bd.spiralAngle;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 160, 9999, 3000);
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 160, -1, 3000);
         }
       } else if (bd.phase === 2) {
         for (let i = 0; i < 8; i++) {
           const a1 = (Math.PI * 2 / 8) * i + bd.spiralAngle;
           const a2 = a1 + Math.PI / 8;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a1, 190, 9999, 3000);
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a2, 140, 9999, 3000);
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a1, 190, -1, 3000);
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a2, 140, -1, 3000);
         }
       } else {
         for (let i = 0; i < 16; i++) {
           const a = (Math.PI * 2 / 16) * i + bd.spiralAngle;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 220, 9999, 3500);
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 220, -1, 3500);
         }
-        this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, angle, 260, 9999, 3000);
+        this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, angle, 260, -1, 3000);
       }
     }
 
