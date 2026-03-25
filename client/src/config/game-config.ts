@@ -35,5 +35,5 @@ export const gameConfig: Phaser.Types.Core.GameConfig = {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  scene: [BootScene, PreloadScene, LoreScene, CharacterSelectScene, GameScene, DungeonScene, NexusScene, DeathScene, UIScene],
+  scene: [BootScene, PreloadScene, LoreScene, CharacterSelectScene, GameScene, DungeonScene, NexusScene, DeathScene, EndingScene, UIScene],
 };
