@@ -1304,6 +1304,20 @@ export class GameScene extends Phaser.Scene {
 
     // ---- DORMANT phase (0) — constrained idle at world center, instant-kill on touch ----
     if (bd.phase === 0) {
+      // Direct awakening: if all dungeons cleared, awaken immediately from dormant
+      // This is the most reliable path — checked every frame, no flags or delays
+      const shouldAwaken = !this.worldBossSpawned && (
+        this.lastCompletedDungeonIdx >= 3
+        || this._sessionCompletedDungeons.size >= this.DUNGEON_PROGRESSION.length
+        || this.DUNGEON_PROGRESSION.every(e => this.spawnedDungeonPortals.has(e.dungeonId))
+        || this.progressManager.getHighestStage(this.classId) >= 4
+      );
+      if (shouldAwaken) {
+        console.log('[Fenrir] Dormant phase detected all dungeons cleared — awakening now');
+        this.spawnWorldBoss();
+        return;
+      }
+
       bd.spiralAngle += dt * 0.3;
 
       // Orbit slowly within 80px of home — never leaves the dark inner circle
@@ -1329,6 +1343,7 @@ export class GameScene extends Phaser.Scene {
       // Otherwise instant-kill (player shouldn't be here before clearing dungeons)
       if (dormantDist < 32 && !this.playerController.isInvincible && !this.playerController.isDead) {
         const allCleared = this.lastCompletedDungeonIdx >= 3
+          || this._sessionCompletedDungeons.size >= this.DUNGEON_PROGRESSION.length
           || this.progressManager.getHighestStage(this.classId) >= 4;
         const dmg = allCleared
           ? Math.floor(this.playerController.maxHp * 0.10)
@@ -1341,6 +1356,7 @@ export class GameScene extends Phaser.Scene {
       if (bd.fireCooldown <= 0) {
         bd.fireCooldown = 3.0;
         const allCleared = this.lastCompletedDungeonIdx >= 3
+          || this._sessionCompletedDungeons.size >= this.DUNGEON_PROGRESSION.length
           || this.progressManager.getHighestStage(this.classId) >= 4;
         const projDmg = allCleared ? -1 : 9999; // -1 sentinel = 10% HP when dungeons cleared
         for (let i = 0; i < 4; i++) {
