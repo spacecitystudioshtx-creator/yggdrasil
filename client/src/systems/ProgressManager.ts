@@ -95,7 +95,11 @@ function getCrazyData(): { getItem(k: string): string | null; setItem(k: string,
 function storageGetItem(key: string): string | null {
   const cd = getCrazyData();
   if (cd) {
-    try { return cd.getItem(key); } catch { /* fallback */ }
+    try {
+      const val = cd.getItem(key);
+      if (val !== null) return val;
+      // CrazyGames returned null — fall through to localStorage
+    } catch { /* fallback */ }
   }
   try { return localStorage.getItem(key); } catch { return null; }
 }
