@@ -134,7 +134,7 @@ export class NexusScene extends Phaser.Scene {
     this.input.setDefaultCursor('none');
 
     // 9. Interact key (E)
-    this.input.keyboard!.on('keydown-E', () => {
+    this.input.keyboard?.on('keydown-E', () => {
       if (this.panelOpen) {
         this.closePanel();
       } else {
@@ -143,7 +143,7 @@ export class NexusScene extends Phaser.Scene {
     });
 
     // 10. Escape to close panels
-    this.input.keyboard!.on('keydown-ESC', () => {
+    this.input.keyboard?.on('keydown-ESC', () => {
       if (this.panelOpen) this.closePanel();
     });
 

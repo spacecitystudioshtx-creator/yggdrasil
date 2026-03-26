@@ -138,7 +138,7 @@ export class LoreScene extends Phaser.Scene {
     });
 
     // Skip on any key press
-    this.input.keyboard!.on('keydown', () => {
+    this.input.keyboard?.on('keydown', () => {
       if (this.canSkip) this.goToCharacterSelect();
     });
 
