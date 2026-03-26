@@ -91,6 +91,7 @@ export class GameScene extends Phaser.Scene {
   // Progressive reveal: opacity increases as dungeons are cleared (0.15 → 0.35 → 0.55 → 0.75 → 1.0)
   private worldBossRevealLevel: number = 0; // 0-4 based on dungeons cleared
   private _bossAwakeRetryScheduled: boolean = false;
+  private _bossBoostApplied: boolean = false; // prevents compounding stat boosts on reload
   // Tracks dungeons completed in THIS session (never lost to save issues)
   private _sessionCompletedDungeons: Set<string> = new Set();
 
@@ -1033,7 +1034,9 @@ export class GameScene extends Phaser.Scene {
       this.time.delayedCall(500, () => this.updateFenrirReveal(dungeonsCleared));
 
       // All 4 dungeons cleared — awaken Fenrir so projectiles and auto-aim work
+      // Mark boost as already applied since saved stats include the boost
       if (dungeonsCleared >= 4) {
+        this._bossBoostApplied = true;
         this.time.delayedCall(1500, () => {
           this.spawnWorldBoss();
         });
@@ -1243,16 +1246,20 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Massive stat boost for the Fenrir fight — the player is now worthy
+    // Guard: only apply boost ONCE to prevent compounding on reload
     const pc = this.playerController;
-    const boost = 1.8;
-    pc.maxHp  = Math.floor(pc.maxHp  * boost);
+    if (!this._bossBoostApplied) {
+      this._bossBoostApplied = true;
+      const boost = 1.8;
+      pc.maxHp  = Math.floor(pc.maxHp  * boost);
+      pc.maxMp  = Math.floor(pc.maxMp  * boost);
+      pc.attack    = Math.floor(pc.attack    * boost);
+      pc.defense   = Math.floor(pc.defense   * boost);
+      pc.speed     = Math.floor(pc.speed     * 1.3);
+      pc.dexterity = Math.floor(pc.dexterity * 1.5);
+    }
     pc.hp     = pc.maxHp;
-    pc.maxMp  = Math.floor(pc.maxMp  * boost);
     pc.mp     = pc.maxMp;
-    pc.attack    = Math.floor(pc.attack    * boost);
-    pc.defense   = Math.floor(pc.defense   * boost);
-    pc.speed     = Math.floor(pc.speed     * 1.3);
-    pc.dexterity = Math.floor(pc.dexterity * 1.5);
     pc.grantInvincibility(5.0);
 
     // Awaken Fenrir's real HP
@@ -1477,23 +1484,25 @@ export class GameScene extends Phaser.Scene {
 
     // Save the final checkpoint — Fenrir defeated
     this.progressManager.unlockStage(this.classId, 4);
+    // Clear run state so reloading doesn't replay the boss fight
+    this.progressManager.clearRunState();
 
     this.events.emit('notification', '⚡  FENRIR HAS FALLEN!', '#ffdd44');
     this.events.emit('notification', 'YOU ARE THE CHAMPION OF MIDGARD!', '#ffaa00');
 
-    // Victory heal — restore full HP on boss kill
+    // Victory heal + invincibility so player can't die during ending transition
     this.playerController.hp = this.playerController.maxHp;
     this.playerController.mp = this.playerController.maxMp;
+    this.playerController.grantInvincibility(30);
     this.showInstantHealEffect(this.player.x, this.player.y - 20, this.playerController.maxHp);
 
-    // Transition to ending after dramatic pause
-    this.time.delayedCall(4500, () => {
+    // Transition to ending — use camera fade callback for reliable scene switch
+    this.time.delayedCall(3000, () => {
       this.cameras.main.fadeOut(1500, 0, 0, 0);
-    });
-    this.time.delayedCall(6000, () => {
-      this.scene.stop('UIScene');
-      this.scene.stop('GameScene');
-      this.scene.start('EndingScene');
+      this.cameras.main.once('camerafadeoutcomplete', () => {
+        this.scene.stop('UIScene');
+        this.scene.start('EndingScene');
+      });
     });
   }
 
