@@ -1,5 +1,8 @@
 /**
- * ProgressManager: Saves per-class checkpoint progress to localStorage.
+ * ProgressManager: Saves per-class checkpoint progress.
+ *
+ * Uses the CrazyGames Data Module when available (syncs across devices
+ * for logged-in users), falls back to localStorage otherwise.
  *
  * Each class tracks which "stages" have been unlocked:
  *   stage 0 = Midgard (starting area) — always unlocked
@@ -76,6 +79,45 @@ export interface PlayerRunState {
 const STORAGE_KEY    = 'yggdrasil_progress_v1';
 const RUN_STATE_KEY  = 'yggdrasil_run_v1';
 
+// ---------------------------------------------------------------------------
+// Storage abstraction — CrazyGames Data Module with localStorage fallback
+// ---------------------------------------------------------------------------
+
+/** Get the CrazyGames SDK data module, or null if unavailable */
+function getCrazyData(): { getItem(k: string): string | null; setItem(k: string, v: string): void; removeItem(k: string): void } | null {
+  try {
+    const sdk = (window as any).CrazyGames?.SDK;
+    if (sdk?.data) return sdk.data;
+  } catch { /* ignore */ }
+  return null;
+}
+
+function storageGetItem(key: string): string | null {
+  const cd = getCrazyData();
+  if (cd) {
+    try { return cd.getItem(key); } catch { /* fallback */ }
+  }
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function storageSetItem(key: string, value: string): void {
+  const cd = getCrazyData();
+  if (cd) {
+    try { cd.setItem(key, value); } catch { /* fallback */ }
+  }
+  try { localStorage.setItem(key, value); } catch { /* ignore */ }
+}
+
+function storageRemoveItem(key: string): void {
+  const cd = getCrazyData();
+  if (cd) {
+    try { cd.removeItem(key); } catch { /* fallback */ }
+  }
+  try { localStorage.removeItem(key); } catch { /* ignore */ }
+}
+
+// ---------------------------------------------------------------------------
+
 export class ProgressManager {
   private data: Record<string, ClassProgress>;
 
@@ -118,17 +160,17 @@ export class ProgressManager {
   // Mid-run state — persists level/XP/HP/MP across browser refresh
   // -----------------------------------------------------------------------
 
-  /** Save the player's current in-run state to localStorage */
+  /** Save the player's current in-run state */
   saveRunState(state: PlayerRunState): void {
     try {
-      localStorage.setItem(RUN_STATE_KEY, JSON.stringify(state));
+      storageSetItem(RUN_STATE_KEY, JSON.stringify(state));
     } catch {}
   }
 
   /** Load a previously saved run state. Returns null if none or classId mismatch. */
   loadRunState(classId: string): PlayerRunState | null {
     try {
-      const raw = localStorage.getItem(RUN_STATE_KEY);
+      const raw = storageGetItem(RUN_STATE_KEY);
       if (!raw) return null;
       const state = JSON.parse(raw) as PlayerRunState;
       // Only restore state for the same class
@@ -142,13 +184,13 @@ export class ProgressManager {
   /** Clear the saved run state (call on death or intentional new-game) */
   clearRunState(): void {
     try {
-      localStorage.removeItem(RUN_STATE_KEY);
+      storageRemoveItem(RUN_STATE_KEY);
     } catch {}
   }
 
   private load(): Record<string, ClassProgress> {
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = storageGetItem(STORAGE_KEY);
       return raw ? JSON.parse(raw) : {};
     } catch {
       return {};
@@ -157,7 +199,7 @@ export class ProgressManager {
 
   private save(): void {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.data));
+      storageSetItem(STORAGE_KEY, JSON.stringify(this.data));
     } catch {}
   }
 }

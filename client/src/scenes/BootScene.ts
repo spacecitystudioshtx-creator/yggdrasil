@@ -10,6 +10,22 @@ export class BootScene extends Phaser.Scene {
   }
 
   create(): void {
+    // --- CrazyGames mute integration ---
+    // Check initial mute state and listen for changes
+    const sdk = (window as any).CrazyGames?.SDK;
+    if (sdk?.game) {
+      try {
+        // Apply initial mute state
+        if (sdk.game.settings?.muteAudio) {
+          this.sound.mute = true;
+        }
+        // Listen for mute/unmute changes from CrazyGames
+        sdk.game.addSettingsChangeListener((settings: { muteAudio?: boolean }) => {
+          this.sound.mute = !!settings.muteAudio;
+        });
+      } catch (_e) { /* ignore if settings API unavailable */ }
+    }
+
     // Show a simple loading message while PreloadScene loads assets
     this.add.text(
       this.cameras.main.centerX,

@@ -10,10 +10,10 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // Signal loading start to CrazyGames SDK
+    // Signal loading start to CrazyGames SDK (v3 method names)
     const crazySdk = (window as any).CrazyGames?.SDK;
     if (crazySdk?.game) {
-      try { crazySdk.game.sdkGameLoadingStart(); } catch (_e) { /* ignore */ }
+      try { crazySdk.game.loadingStart(); } catch (_e) { /* ignore */ }
     }
 
     const { centerX, centerY } = this.cameras.main;
@@ -65,10 +65,10 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   create(): void {
-    // Signal loading complete to CrazyGames SDK
+    // Signal loading complete to CrazyGames SDK (v3 method names)
     const crazySdk = (window as any).CrazyGames?.SDK;
     if (crazySdk?.game) {
-      try { crazySdk.game.sdkGameLoadingStop(); } catch (_e) { /* ignore */ }
+      try { crazySdk.game.loadingStop(); } catch (_e) { /* ignore */ }
     }
 
     // Remove loading bar UI before drawing the "press any key" screen
