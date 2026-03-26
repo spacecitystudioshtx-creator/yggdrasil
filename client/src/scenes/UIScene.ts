@@ -173,7 +173,7 @@ export class UIScene extends Phaser.Scene {
     }
 
     // --- Keyboard ---
-    this.input.keyboard!.on('keydown-M', () => {
+    this.input.keyboard?.on('keydown-M', () => {
       this.mapOpen = !this.mapOpen;
       if (this.mapOpen) { this.rebuildWorldMap(); }
       this.mapPanel.setVisible(this.mapOpen);

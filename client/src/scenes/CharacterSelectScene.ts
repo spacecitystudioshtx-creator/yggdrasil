@@ -147,21 +147,21 @@ export class CharacterSelectScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     // Keyboard controls
-    this.input.keyboard!.on('keydown-LEFT', () => {
+    this.input.keyboard?.on('keydown-LEFT', () => {
       if (this.stageOverlay) return; // stage select handles navigation
       this.selectedIndex = (this.selectedIndex - 1 + this.classes.length) % this.classes.length;
       this.updateSelection();
     });
-    this.input.keyboard!.on('keydown-RIGHT', () => {
+    this.input.keyboard?.on('keydown-RIGHT', () => {
       if (this.stageOverlay) return;
       this.selectedIndex = (this.selectedIndex + 1) % this.classes.length;
       this.updateSelection();
     });
-    this.input.keyboard!.on('keydown-ENTER', () => {
+    this.input.keyboard?.on('keydown-ENTER', () => {
       if (this.stageOverlay) return; // stage select ENTER handler takes priority
       this.confirmSelection();
     });
-    this.input.keyboard!.on('keydown-SPACE', () => {
+    this.input.keyboard?.on('keydown-SPACE', () => {
       if (this.stageOverlay) return;
       this.confirmSelection();
     });

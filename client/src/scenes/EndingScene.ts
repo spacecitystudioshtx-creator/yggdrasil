@@ -162,7 +162,7 @@ export class EndingScene extends Phaser.Scene {
         targets: skipText, alpha: 0.3, duration: 1200, yoyo: true, repeat: -1,
       });
 
-      this.input.keyboard!.once('keydown', () => this.finish());
+      this.input.keyboard?.once('keydown', () => this.finish());
       this.input.once('pointerdown', () => this.finish());
     });
   }

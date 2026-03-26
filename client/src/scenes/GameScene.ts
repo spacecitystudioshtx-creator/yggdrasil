@@ -1098,6 +1098,7 @@ export class GameScene extends Phaser.Scene {
     this.worldBoss.setTint(0x220011);
     this.worldBoss.setDepth(15);
     this.worldBoss.body!.setSize(30, 30);
+    this.worldBoss.setCollideWorldBounds(true);
 
     // Progressive reveal: starts as a faint shadow, becomes more visible with each dungeon cleared
     this.worldBossRevealLevel = 0;
@@ -1208,7 +1209,7 @@ export class GameScene extends Phaser.Scene {
    * label changes to his name, damage becomes real.
    */
   spawnWorldBoss(): void {
-    if (this.worldBossSpawned || !this.worldBoss) return;
+    if (this.worldBossSpawned || !this.worldBoss || !this.worldBoss.active) return;
     this.worldBossSpawned = true;
     this.worldBossAwake = true;
 

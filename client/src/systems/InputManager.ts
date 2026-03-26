@@ -14,17 +14,17 @@ export class InputManager {
   static virtualAbility = false;
   static isMobile = false;
 
-  // Key references
-  private keyW!: Phaser.Input.Keyboard.Key;
-  private keyA!: Phaser.Input.Keyboard.Key;
-  private keyS!: Phaser.Input.Keyboard.Key;
-  private keyD!: Phaser.Input.Keyboard.Key;
-  private keyUp!: Phaser.Input.Keyboard.Key;
-  private keyDown!: Phaser.Input.Keyboard.Key;
-  private keyLeft!: Phaser.Input.Keyboard.Key;
-  private keyRight!: Phaser.Input.Keyboard.Key;
-  private keyP!: Phaser.Input.Keyboard.Key;    // Portal summon
-  private keySpace!: Phaser.Input.Keyboard.Key; // Ability (future)
+  // Key references (null on mobile/touch-only devices)
+  private keyW: Phaser.Input.Keyboard.Key | null = null;
+  private keyA: Phaser.Input.Keyboard.Key | null = null;
+  private keyS: Phaser.Input.Keyboard.Key | null = null;
+  private keyD: Phaser.Input.Keyboard.Key | null = null;
+  private keyUp: Phaser.Input.Keyboard.Key | null = null;
+  private keyDown: Phaser.Input.Keyboard.Key | null = null;
+  private keyLeft: Phaser.Input.Keyboard.Key | null = null;
+  private keyRight: Phaser.Input.Keyboard.Key | null = null;
+  private keyP: Phaser.Input.Keyboard.Key | null = null;    // Portal summon
+  private keySpace: Phaser.Input.Keyboard.Key | null = null; // Ability
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -32,17 +32,19 @@ export class InputManager {
     // Detect mobile/touch device
     InputManager.isMobile = this.detectMobile();
 
-    const kb = scene.input.keyboard!;
-    this.keyW = kb.addKey(Phaser.Input.Keyboard.KeyCodes.W);
-    this.keyA = kb.addKey(Phaser.Input.Keyboard.KeyCodes.A);
-    this.keyS = kb.addKey(Phaser.Input.Keyboard.KeyCodes.S);
-    this.keyD = kb.addKey(Phaser.Input.Keyboard.KeyCodes.D);
-    this.keyUp = kb.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
-    this.keyDown = kb.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
-    this.keyLeft = kb.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT);
-    this.keyRight = kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT);
-    this.keyP = kb.addKey(Phaser.Input.Keyboard.KeyCodes.P);
-    this.keySpace = kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    const kb = scene.input.keyboard;
+    if (kb) {
+      this.keyW = kb.addKey(Phaser.Input.Keyboard.KeyCodes.W);
+      this.keyA = kb.addKey(Phaser.Input.Keyboard.KeyCodes.A);
+      this.keyS = kb.addKey(Phaser.Input.Keyboard.KeyCodes.S);
+      this.keyD = kb.addKey(Phaser.Input.Keyboard.KeyCodes.D);
+      this.keyUp = kb.addKey(Phaser.Input.Keyboard.KeyCodes.UP);
+      this.keyDown = kb.addKey(Phaser.Input.Keyboard.KeyCodes.DOWN);
+      this.keyLeft = kb.addKey(Phaser.Input.Keyboard.KeyCodes.LEFT);
+      this.keyRight = kb.addKey(Phaser.Input.Keyboard.KeyCodes.RIGHT);
+      this.keyP = kb.addKey(Phaser.Input.Keyboard.KeyCodes.P);
+      this.keySpace = kb.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    }
   }
 
   private detectMobile(): boolean {
@@ -62,10 +64,10 @@ export class InputManager {
     let dx = 0;
     let dy = 0;
 
-    if (this.keyW.isDown || this.keyUp.isDown) dy -= 1;
-    if (this.keyS.isDown || this.keyDown.isDown) dy += 1;
-    if (this.keyA.isDown || this.keyLeft.isDown) dx -= 1;
-    if (this.keyD.isDown || this.keyRight.isDown) dx += 1;
+    if (this.keyW?.isDown || this.keyUp?.isDown) dy -= 1;
+    if (this.keyS?.isDown || this.keyDown?.isDown) dy += 1;
+    if (this.keyA?.isDown || this.keyLeft?.isDown) dx -= 1;
+    if (this.keyD?.isDown || this.keyRight?.isDown) dx += 1;
 
     // Normalize diagonal movement
     if (dx !== 0 && dy !== 0) {
@@ -98,11 +100,11 @@ export class InputManager {
       InputManager.virtualAbility = false; // consume the press
       return true;
     }
-    return Phaser.Input.Keyboard.JustDown(this.keySpace);
+    return this.keySpace ? Phaser.Input.Keyboard.JustDown(this.keySpace) : false;
   }
 
   /** Is portal key pressed? (P — summon current dungeon portal to player) */
   isPortalKeyPressed(): boolean {
-    return Phaser.Input.Keyboard.JustDown(this.keyP);
+    return this.keyP ? Phaser.Input.Keyboard.JustDown(this.keyP) : false;
   }
 }

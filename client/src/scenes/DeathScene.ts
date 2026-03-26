@@ -163,6 +163,8 @@ export class DeathScene extends Phaser.Scene {
 
     // New Character button
     this.createButton(cx - 100, btnY, 180, 28, 'New Character  [ENTER]', 0x44aa33, () => {
+      const sdk = (window as any).CrazyGames?.SDK;
+      if (sdk?.game) { try { sdk.game.gameplayStop(); } catch (_e) { /* ignore */ } }
       this.scene.stop('UIScene');
       this.scene.stop('GameScene');
       this.scene.stop('DungeonScene');
@@ -171,7 +173,7 @@ export class DeathScene extends Phaser.Scene {
     });
 
     // Also allow ENTER key to start new character
-    this.input.keyboard!.once('keydown-ENTER', () => {
+    this.input.keyboard?.once('keydown-ENTER', () => {
       this.scene.stop('UIScene');
       this.scene.stop('GameScene');
       this.scene.stop('DungeonScene');
@@ -185,7 +187,7 @@ export class DeathScene extends Phaser.Scene {
     });
 
     // SPACE key toggles graveyard
-    this.input.keyboard!.on('keydown-SPACE', () => {
+    this.input.keyboard?.on('keydown-SPACE', () => {
       this.toggleGraveyard();
     });
 

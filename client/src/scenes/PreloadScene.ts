@@ -99,7 +99,7 @@ export class PreloadScene extends Phaser.Scene {
       repeat: -1,
     });
 
-    this.input.keyboard!.on('keydown', () => this.startGame());
+    this.input.keyboard?.on('keydown', () => this.startGame());
     this.input.on('pointerdown', () => this.startGame());
   }
 
