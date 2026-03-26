@@ -6,7 +6,15 @@ Built with **Phaser 3**, **TypeScript**, and **Vite**.
 
 ---
 
-## Quick Start
+## Play the Game
+
+The game is deployed via **GitHub Pages**. Check the repository's **Settings → Pages** for the live URL, or look for the link in the **About** section of this repo.
+
+Also available on **CrazyGames** (landscape orientation, desktop & mobile).
+
+---
+
+## Quick Start (Local Development)
 
 ```bash
 npm install
@@ -26,7 +34,9 @@ Open `http://localhost:5173` in your browser.
 | **Left Click** | Shoot |
 | **Space** | Use special ability |
 | **M** | Toggle world map overlay |
-| **P** | Force-exit dungeon (emergency) |
+| **P** | Pull dungeon portal to player |
+
+**Mobile:** On-screen joystick (left) and fire button (right). Hidden on desktop.
 
 ---
 
@@ -37,10 +47,11 @@ yggdrasil/
   shared/          # Shared types, enums, constants, balance formulas
   client/          # Phaser 3 game client (Vite + TypeScript)
     src/
-      scenes/      # PreloadScene, LoreScene, CharacterSelectScene, GameScene,
-                   # DungeonScene, UIScene, DeathScene
+      scenes/      # BootScene, PreloadScene, LoreScene, CharacterSelectScene,
+                   # GameScene, DungeonScene, UIScene, DeathScene, EndingScene,
+                   # NexusScene
       systems/     # PlayerController, AbilitySystem, MusicManager, ProgressManager,
-                   # EnemyManager, ProjectileManager
+                   # EnemyManager, ProjectileManager, InputManager
       data/        # ClassDatabase, DungeonDatabase
       utils/       # SpriteGenerator, ObjectPool
   server/          # Placeholder (unused)
@@ -122,10 +133,29 @@ yggdrasil/
 - Procedural snake-path room generation with varying room sizes
 - 3–5 enemies per room; idle until player enters, then aggro
 - **Multi-phase boss fights**: phases escalate at 60% and 25% HP with new bullet patterns and dialogue
-- **Boss awakening system**: boss spawns dormant (ghost-like pulse) and dramatically awakens when the player approaches — scale pop, white flash, full alpha
-- Boss health bar and boss music both trigger on approach (distance-based, not room-bounds)
+- **Boss awakening system**: boss spawns dormant (ghost-like pulse) and dramatically awakens when the player approaches
+- Boss health bar and boss music both trigger on approach
 - Full HP/MP restore on boss kill; exit portal always spawns on completion
 - Per-dungeon music track; boss theme switches on approach
+
+---
+
+### Fenrir — The Final Boss
+- **Progressive reveal**: becomes more visible as each dungeon is cleared (alpha 0.15 → 1.0)
+- Dormant at world center firing warning shots; fully awakens after all 4 dungeons cleared
+- 1.8× stat boost granted to player for the fight
+- **3 escalating phases**: Spiral (phase 1) → Double spiral + aimed (phase 2) → Dense ring + triple aimed burst (phase 3)
+- Chase range 450px, increasing speed per phase
+- Dramatic death animation with flash sequence and expand-fade
+- Transitions to EndingScene epilogue on defeat
+
+---
+
+### Ending Sequence
+- Scrolling epilogue matching the opening lore crawl style
+- Reveals the story twist: "Fenrir was never the threat. Fenrir was the lock."
+- Credits roll with studio attribution
+- Post-credits: Endless Mode prompt or New Game option
 
 ---
 
@@ -139,23 +169,30 @@ yggdrasil/
 #### Save System
 - **Mid-run state persists across browser refresh** (level, XP, HP, MP, spawned portals)
 - Dungeon completion checkpoints saved per class
+- **CrazyGames Data Module** support: syncs progress cross-device for logged-in players
+- Falls through to localStorage when Data Module is unavailable
 
-#### Stage Select (Coffee Golf tour–style)
-- Selectable circles in a horizontal path — inspired by [Coffee Golf](https://apps.apple.com/us/app/coffee-golf/id6449750555)'s tour mode level navigation
+#### Stage Select (Coffee Golf tour-style)
+- Selectable circles in a horizontal path
 - Navigate between circles with arrow keys or click; selected circle glows with info panel below
-- Click a circle to select, click again (or ENTER) to launch
 - **`RUN` circle** — resume your exact saved run (Lv.N)
 - **`NEW` circle** — fresh start from level 1
 - Named checkpoint circles for fast-travel (Frost, Verdant, Forge, Helheim)
 - Unlocked circles are warm/bright, locked circles are dimmed
+- Back button to return to character select
 
 #### Respawn
 - **No permadeath** — 3-second countdown on death, respawn at last spawn point
 - All XP, levels, and progress kept on death
 
-#### End Game
-- After all 4 dungeons cleared: stat boost (HP, MP, Attack raised to Fenrir-ready levels)
-- **Fenrir, The World Ender** waits at the world center as the final battle
+---
+
+### Multi-Platform Support
+- **Desktop**: Full keyboard + mouse controls
+- **Mobile**: Touch joystick and fire button (auto-hidden on desktop)
+- **CrazyGames SDK v3**: Loading/gameplay lifecycle signals, mute support, Data Module saves
+- **Conditional SDK loading**: CrazyGames SDK only loads on CrazyGames domains, preventing load issues elsewhere
+- **Null-safe keyboard access**: All keyboard bindings use optional chaining for touch-only devices
 
 ---
 
@@ -163,55 +200,9 @@ yggdrasil/
 - 4 dungeon music tracks (one per realm), overworld, and boss themes
 - Music fades smoothly between scenes; boss track triggers on approach
 - 6 SFX: ability use, enemy hit, player hit, heal, level-up, portal enter
+- CrazyGames mute integration (global `game.sound.mute`)
 
 > **Generating custom tracks:** run `ELEVENLABS_API_KEY=xxx ./generate-dungeon-audio.sh`
-
----
-
-## Known Working Features
-
-- ✅ Lore scroll → Character Select → Game loop
-- ✅ All 6 classes with unique stats, fire rates, and ability behavior
-- ✅ Damage balanced: per-bullet damage within ~30% across all classes
-- ✅ Stage select: dot progress bar, single-click confirm, all arrow keys navigate
-- ✅ Continue / Fresh Start / Checkpoint options all launch correctly
-- ✅ Respawn on death — all progress kept, no permadeath
-- ✅ Progress persists across browser refresh (mid-run state)
-- ✅ Boss multi-phase transitions (Awakening → Phase 2 → Phase 3)
-- ✅ Boss dormant/awakening system with entrance animation
-- ✅ Boss phase patterns escalate at 60% and 25% HP (fixed backward-loop bug)
-- ✅ Boss hit feedback: SFX, white flash, damage numbers
-- ✅ Per-dungeon music keys (unique track per realm)
-- ✅ Boss music triggers on approach; full heal on boss kill
-- ✅ Exit portal always force-spawns on completion
-- ✅ Objective tracker (top-right) shows live level goals
-- ✅ Ability widget: class-colored when ready, dark sweep on cooldown
-- ✅ Enemy and boss tints restored after damage flash
-- ✅ XP bar clamped (no visual overflow)
-- ✅ Minimap: dual-scale (biome rings + enemy/portal dots)
-
----
-
-## 🚧 Known Issues / In Progress
-
-### 🔴 Black screen on dungeon exit (intermittent)
-After defeating a dungeon boss and walking through the exit portal, the screen sometimes goes permanently black instead of transitioning back to the Midgard overworld. Root cause traced to three compounding bugs in `DungeonScene.exitDungeon()`:
-
-1. **Failsafe guard was inverted** — the 2s failsafe always fired a second `doSceneTransition` call, corrupting state
-2. **Stop timer was scene-scoped** — `this.time.delayedCall` to stop DungeonScene could be cancelled by Phaser's own scene management, leaving the black faded camera active permanently
-3. **No once-guard on transition** — multiple concurrent callers could wake GameScene twice
-
-**Status:** Core fix applied (global `window.setTimeout` + `hasTransitioned` guard). May still occur in edge cases across all 4 dungeons. Under active investigation.
-
----
-
-### 🔴 Final boss (Fenrir) not activating correctly
-After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midgard overworld. Currently:
-- Boss may remain in the dormant ghost state (semi-transparent) if the distance-based awakening trigger doesn't fire
-- Boss attack phases may not escalate as intended in the overworld context (separate code path from dungeon bosses)
-- Hit registration on the final boss needs verification
-
-**Status:** Dungeon bosses are confirmed working. Fenrir uses a separate boss system in `GameScene.ts` that requires a dedicated pass to bring it in line with the dungeon boss improvements.
 
 ---
 
@@ -225,6 +216,8 @@ After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midg
 | **npm workspaces** | Monorepo (client / shared) |
 | **ElevenLabs API** | Procedurally generated music and SFX |
 | **localStorage** | Run state, checkpoints, and progress persistence |
+| **CrazyGames SDK v3** | Platform integration (saves, mute, lifecycle) |
+| **GitHub Pages** | Automated deployment via Actions |
 
 ---
 
@@ -232,16 +225,19 @@ After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midg
 
 ```ts
 // Damage taken
-damage_taken = max(baseDamage − defense, baseDamage × 0.15)
+damage_taken = max(baseDamage - defense, baseDamage * 0.15)
 
 // Move speed
-moveSpeed = 80 + speedStat × 1.5
+moveSpeed = 80 + speedStat * 1.5
 
 // HP regen
-hpRegen = 1 + vitality × 0.12   // per second
+hpRegen = 1 + vitality * 0.12   // per second
 
 // XP curve (uncapped)
-xpForLevel(n) = 50 × (n−1)²
+xpForLevel(n) = 50 * (n-1)^2
+
+// Fenrir boss: 35,000 HP, 1.5% per hit, max 5 hits/sec (damage cooldown)
+// Player boost for Fenrir fight: 1.8x HP/MP/ATK/DEF, 1.3x SPD, 1.5x DEX
 ```
 
 Multi-bullet classes (Viking 5×, Berserker 3×, Valkyrie 3×) have their `damageMultiplier` set directly in `ClassDatabase.ts` so per-bullet damage is transparent and easily tunable. No hidden code penalty.
