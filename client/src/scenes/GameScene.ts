@@ -1244,19 +1244,19 @@ export class GameScene extends Phaser.Scene {
 
     // Massive stat boost for the Fenrir fight — the player is now worthy
     const pc = this.playerController;
-    const boost = 2.5;
+    const boost = 1.8;
     pc.maxHp  = Math.floor(pc.maxHp  * boost);
     pc.hp     = pc.maxHp;
     pc.maxMp  = Math.floor(pc.maxMp  * boost);
     pc.mp     = pc.maxMp;
     pc.attack    = Math.floor(pc.attack    * boost);
     pc.defense   = Math.floor(pc.defense   * boost);
-    pc.speed     = Math.floor(pc.speed     * 1.5);
-    pc.dexterity = Math.floor(pc.dexterity * 2.0);
+    pc.speed     = Math.floor(pc.speed     * 1.3);
+    pc.dexterity = Math.floor(pc.dexterity * 1.5);
     pc.grantInvincibility(5.0);
 
     // Awaken Fenrir's real HP
-    const bossHp = 8000;
+    const bossHp = 35000;
     this.worldBossData = {
       hp: bossHp,
       maxHp: bossHp,
@@ -1273,7 +1273,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setDepth(201).setScrollFactor(0);
 
     // Wire projectiles to damage Fenrir now that he's awake
-    // Each hit does 5% of Fenrir's max HP regardless of player stats
+    // Each hit does 1.5% of Fenrir's max HP — requires sustained fire to defeat
     this.physics.add.overlap(
       this.projectileManager.playerProjectiles,
       this.worldBoss,
@@ -1283,7 +1283,7 @@ export class GameScene extends Phaser.Scene {
         if (!proj.active) return;
         this.projectileManager.deactivateProjectile(proj, true);
         if (this.worldBossData) {
-          const dmg = Math.floor(this.worldBossData.maxHp * 0.05);
+          const dmg = Math.floor(this.worldBossData.maxHp * 0.015);
           this.worldBossData.hp -= dmg;
           this.worldBoss!.setTint(0xffffff);
           this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
@@ -1388,8 +1388,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Chase player if in range, otherwise return to center
-    const chaseRange = 350;
-    const speed = 55 + bd.phase * 20;
+    const chaseRange = 450;
+    const speed = 70 + bd.phase * 25;
     const angle = angleBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
     const dist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
     const homeDist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.worldBossHomeX, this.worldBossHomeY);
@@ -1409,9 +1409,9 @@ export class GameScene extends Phaser.Scene {
       this.worldBoss.setVelocity(0, 0);
     }
 
-    // Contact damage — 10% of player max HP (painful but survivable)
+    // Contact damage — 15% of player max HP (punishing for getting too close)
     if (dist < 32 && !this.playerController.isInvincible && !this.playerController.isDead) {
-      this.playerController.takeDamage(Math.floor(this.playerController.maxHp * 0.10));
+      this.playerController.takeDamage(Math.floor(this.playerController.maxHp * 0.15));
     }
 
     // Bullet patterns — escalating
@@ -1419,26 +1419,36 @@ export class GameScene extends Phaser.Scene {
     bd.spiralAngle += dt * (1.5 + bd.phase * 0.5);
 
     if (bd.fireCooldown <= 0) {
-      bd.fireCooldown = Math.max(0.18, 0.6 - bd.phase * 0.12);
+      bd.fireCooldown = Math.max(0.15, 0.5 - bd.phase * 0.1);
 
       if (bd.phase === 1) {
-        for (let i = 0; i < 12; i++) {
-          const a = (Math.PI * 2 / 12) * i + bd.spiralAngle;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 160, -1, 3000);
-        }
-      } else if (bd.phase === 2) {
-        for (let i = 0; i < 8; i++) {
-          const a1 = (Math.PI * 2 / 8) * i + bd.spiralAngle;
-          const a2 = a1 + Math.PI / 8;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a1, 190, -1, 3000);
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a2, 140, -1, 3000);
-        }
-      } else {
+        // Spiral: 16 projectiles in a rotating ring
         for (let i = 0; i < 16; i++) {
           const a = (Math.PI * 2 / 16) * i + bd.spiralAngle;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 220, -1, 3500);
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 170, -1, 3500);
         }
-        this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, angle, 260, -1, 3000);
+      } else if (bd.phase === 2) {
+        // Double spiral: two offset rings + aimed shot
+        for (let i = 0; i < 12; i++) {
+          const a1 = (Math.PI * 2 / 12) * i + bd.spiralAngle;
+          const a2 = a1 + Math.PI / 12;
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a1, 200, -1, 3500);
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a2, 150, -1, 3500);
+        }
+        // Aimed shot at player
+        this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, angle, 240, -1, 3000);
+      } else {
+        // Berserk: dense 20-point ring + fast aimed triple shot
+        for (let i = 0; i < 20; i++) {
+          const a = (Math.PI * 2 / 20) * i + bd.spiralAngle;
+          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 230, -1, 4000);
+        }
+        // Triple aimed burst at player
+        for (let s = -1; s <= 1; s++) {
+          this.projectileManager.fireEnemyProjectile(
+            this.worldBoss.x, this.worldBoss.y, angle + s * 0.15, 280, -1, 3500,
+          );
+        }
       }
     }
 
