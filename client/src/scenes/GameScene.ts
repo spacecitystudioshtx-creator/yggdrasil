@@ -359,10 +359,11 @@ export class GameScene extends Phaser.Scene {
     this.checkIceWallProximity();
 
     // Safety net: if all dungeons cleared but boss still dormant, awaken it
-    // Check both lastCompletedDungeonIdx AND spawnedDungeonPortals (covers all save formats)
+    // Check multiple sources: lastCompletedDungeonIdx, spawnedDungeonPortals, AND ProgressManager
     if (this.worldBoss && this.worldBoss.active && !this.worldBossAwake && !this._bossAwakeRetryScheduled) {
       const allDungeonsCleared = this.lastCompletedDungeonIdx >= 3
-        || this.DUNGEON_PROGRESSION.every(e => this.spawnedDungeonPortals.has(e.dungeonId));
+        || this.DUNGEON_PROGRESSION.every(e => this.spawnedDungeonPortals.has(e.dungeonId))
+        || this.progressManager.getHighestStage(this.classId) >= 4;
       if (allDungeonsCleared) {
         this._bossAwakeRetryScheduled = true;
         this.spawnWorldBoss();
@@ -1308,19 +1309,28 @@ export class GameScene extends Phaser.Scene {
 
       const dormantDist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
 
-      // Dormant contact = instant-kill (player shouldn't be here before clearing dungeons)
+      // Dormant contact damage — if dungeons are cleared, use 10% HP (boss is about to awaken)
+      // Otherwise instant-kill (player shouldn't be here before clearing dungeons)
       if (dormantDist < 32 && !this.playerController.isInvincible && !this.playerController.isDead) {
-        this.playerController.takeDamage(this.playerController.maxHp * 20);
+        const allCleared = this.lastCompletedDungeonIdx >= 3
+          || this.progressManager.getHighestStage(this.classId) >= 4;
+        const dmg = allCleared
+          ? Math.floor(this.playerController.maxHp * 0.10)
+          : this.playerController.maxHp * 20;
+        this.playerController.takeDamage(dmg);
       }
 
-      // Slow warning radial — 4 shots every 3s, low speed, mostly decorative
+      // Slow warning radial — 4 shots every 3s, low speed
       bd.fireCooldown -= dt;
       if (bd.fireCooldown <= 0) {
         bd.fireCooldown = 3.0;
+        const allCleared = this.lastCompletedDungeonIdx >= 3
+          || this.progressManager.getHighestStage(this.classId) >= 4;
+        const projDmg = allCleared ? -1 : 9999; // -1 sentinel = 10% HP when dungeons cleared
         for (let i = 0; i < 4; i++) {
           const a = (Math.PI * 2 / 4) * i + bd.spiralAngle;
           this.projectileManager.fireEnemyProjectile(
-            this.worldBoss.x, this.worldBoss.y, a, 70, 9999, 4000,
+            this.worldBoss.x, this.worldBoss.y, a, 70, projDmg, 4000,
           );
         }
       }
