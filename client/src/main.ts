@@ -2,14 +2,17 @@ import Phaser from 'phaser';
 import { gameConfig } from './config/game-config';
 
 async function boot() {
-  // Initialize CrazyGames SDK (must be awaited before any SDK calls)
+  // Initialize CrazyGames SDK with a timeout — game starts regardless
   const sdk = (window as any).CrazyGames?.SDK;
   if (sdk) {
     try {
-      await sdk.init();
+      await Promise.race([
+        sdk.init(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+      ]);
       console.log('[CrazyGames] SDK initialized');
     } catch (e) {
-      console.warn('[CrazyGames] SDK init failed', e);
+      console.warn('[CrazyGames] SDK init skipped:', e);
     }
   }
 
