@@ -1151,6 +1151,26 @@ export class GameScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+
+    // Register projectile overlap EARLY — callback guards on worldBossAwake
+    // so it only processes hits when the boss is in the awake fighting phase.
+    this.physics.add.overlap(
+      this.projectileManager.playerProjectiles,
+      this.worldBoss,
+      (projObj: any) => {
+        if (!this.worldBossAwake || !this.worldBossData) return;
+        const proj = projObj as Phaser.Physics.Arcade.Sprite;
+        if (!proj.active) return;
+        this.projectileManager.deactivateProjectile(proj, true);
+        const dmg = Math.floor(this.worldBossData.maxHp * 0.015);
+        this.worldBossData.hp -= dmg;
+        this.worldBoss!.setTint(0xffffff);
+        this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
+        this.showDamageNumber(this.worldBoss!.x, this.worldBoss!.y - 24, dmg);
+        if (this.worldBossData.hp <= 0) this.onWorldBossDefeated();
+      },
+      undefined, this,
+    );
   }
 
   /** Progressive reveal: increase Fenrir's visibility as dungeons are cleared */
@@ -1279,27 +1299,10 @@ export class GameScene extends Phaser.Scene {
       stroke: '#000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(201).setScrollFactor(0);
 
-    // Wire projectiles to damage Fenrir now that he's awake
-    // Each hit does 1.5% of Fenrir's max HP — requires sustained fire to defeat
-    this.physics.add.overlap(
-      this.projectileManager.playerProjectiles,
-      this.worldBoss,
-      (projObj: any) => {
-        if (!this.worldBossAwake) return;
-        const proj = projObj as Phaser.Physics.Arcade.Sprite;
-        if (!proj.active) return;
-        this.projectileManager.deactivateProjectile(proj, true);
-        if (this.worldBossData) {
-          const dmg = Math.floor(this.worldBossData.maxHp * 0.015);
-          this.worldBossData.hp -= dmg;
-          this.worldBoss!.setTint(0xffffff);
-          this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
-          this.showDamageNumber(this.worldBoss!.x, this.worldBoss!.y - 24, dmg);
-          if (this.worldBossData.hp <= 0) this.onWorldBossDefeated();
-        }
-      },
-      undefined, this,
-    );
+    // Enlarge physics body to match the awake visual scale (4.5x)
+    if (this.worldBoss.body) {
+      (this.worldBoss.body as Phaser.Physics.Arcade.Body).setSize(64, 64, true);
+    }
 
     this.events.emit('notification', '⚠  FENRIR AWAKENS!', '#ff2222');
     this.events.emit('notification', 'Power surges through you. Fight him!', '#ffdd44');
@@ -1459,18 +1462,39 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    // Health bar
+    // Manual hit detection fallback — catches projectiles that physics overlap misses
+    const bx = this.worldBoss.x;
+    const by = this.worldBoss.y;
+    const hitRadius = 48; // generous hitbox matching visual scale
+    this.projectileManager.playerProjectiles.getChildren().forEach((child: any) => {
+      const p = child as Phaser.Physics.Arcade.Sprite;
+      if (!p.active) return;
+      const dx = p.x - bx;
+      const dy = p.y - by;
+      if (dx * dx + dy * dy < hitRadius * hitRadius) {
+        this.projectileManager.deactivateProjectile(p, true);
+        const dmg = Math.floor(bd.maxHp * 0.015);
+        bd.hp -= dmg;
+        this.worldBoss!.setTint(0xffffff);
+        this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
+        this.showDamageNumber(bx, by - 24, dmg);
+        if (bd.hp <= 0) { this.onWorldBossDefeated(); return; }
+      }
+    });
+
+    // Health bar — recalculate ratio after possible damage
+    const updatedHpRatio = bd.hp / bd.maxHp;
     if (this.worldBossHealthBar) {
       this.worldBossHealthBar.clear();
       const barW = 260, barH = 12;
-      const bx = 400 - barW / 2, by = 24;
+      const hbX = 400 - barW / 2, hbY = 24;
       this.worldBossHealthBar.fillStyle(0x220000, 0.9);
-      this.worldBossHealthBar.fillRect(bx, by, barW, barH);
-      const col = hpRatio > 0.5 ? 0xcc0000 : hpRatio > 0.2 ? 0xff4400 : 0xff0000;
+      this.worldBossHealthBar.fillRect(hbX, hbY, barW, barH);
+      const col = updatedHpRatio > 0.5 ? 0xcc0000 : updatedHpRatio > 0.2 ? 0xff4400 : 0xff0000;
       this.worldBossHealthBar.fillStyle(col, 1);
-      this.worldBossHealthBar.fillRect(bx, by, barW * Math.max(0, hpRatio), barH);
+      this.worldBossHealthBar.fillRect(hbX, hbY, barW * Math.max(0, updatedHpRatio), barH);
       this.worldBossHealthBar.lineStyle(1, 0x880000);
-      this.worldBossHealthBar.strokeRect(bx, by, barW, barH);
+      this.worldBossHealthBar.strokeRect(hbX, hbY, barW, barH);
     }
   }
 
