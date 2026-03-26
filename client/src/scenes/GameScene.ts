@@ -91,6 +91,8 @@ export class GameScene extends Phaser.Scene {
   // Progressive reveal: opacity increases as dungeons are cleared (0.15 → 0.35 → 0.55 → 0.75 → 1.0)
   private worldBossRevealLevel: number = 0; // 0-4 based on dungeons cleared
   private _bossAwakeRetryScheduled: boolean = false;
+  // Tracks dungeons completed in THIS session (never lost to save issues)
+  private _sessionCompletedDungeons: Set<string> = new Set();
 
   // Ice wall (flat earth) proximity joke
   private iceWallLabelShown: boolean = false;
@@ -363,7 +365,8 @@ export class GameScene extends Phaser.Scene {
     if (this.worldBoss && this.worldBoss.active && !this.worldBossAwake && !this._bossAwakeRetryScheduled) {
       const allDungeonsCleared = this.lastCompletedDungeonIdx >= 3
         || this.DUNGEON_PROGRESSION.every(e => this.spawnedDungeonPortals.has(e.dungeonId))
-        || this.progressManager.getHighestStage(this.classId) >= 4;
+        || this.progressManager.getHighestStage(this.classId) >= 4
+        || this._sessionCompletedDungeons.size >= this.DUNGEON_PROGRESSION.length;
       if (allDungeonsCleared) {
         this._bossAwakeRetryScheduled = true;
         this.spawnWorldBoss();
@@ -771,6 +774,9 @@ export class GameScene extends Phaser.Scene {
       // Spawn the next dungeon portal in sequence (if any)
       // Always force-spawn on dungeon completion — remove stale tracking so portal re-appears
       if (data.completedDungeonId) {
+        // Track in session-level set (immune to save/data module issues)
+        this._sessionCompletedDungeons.add(data.completedDungeonId);
+
         const currentIdx = this.DUNGEON_PROGRESSION.findIndex(e => e.dungeonId === data.completedDungeonId);
         this.lastCompletedDungeonIdx = Math.max(this.lastCompletedDungeonIdx, currentIdx);
 
@@ -883,7 +889,11 @@ export class GameScene extends Phaser.Scene {
     this.lastCompletedDungeonIdx = numCleared - 1;
 
     if (this.startStage >= 4) {
-      // All dungeons cleared — awaken Fenrir right away
+      // All dungeons cleared — populate session tracking so safety net works
+      for (const entry of this.DUNGEON_PROGRESSION) {
+        this._sessionCompletedDungeons.add(entry.dungeonId);
+      }
+      // Awaken Fenrir right away
       this.updateFenrirReveal(4);
       this.time.delayedCall(1500, () => {
         this.events.emit('notification', 'All dungeons cleared — Fenrir awaits in the center!', '#ffdd44');
@@ -1209,7 +1219,12 @@ export class GameScene extends Phaser.Scene {
    * label changes to his name, damage becomes real.
    */
   spawnWorldBoss(): void {
-    if (this.worldBossSpawned || !this.worldBoss || !this.worldBoss.active) return;
+    if (this.worldBossSpawned) return;
+    if (!this.worldBoss || !this.worldBoss.active) {
+      // Boss sprite not ready — reset retry flag so safety net can try again
+      this._bossAwakeRetryScheduled = false;
+      return;
+    }
     this.worldBossSpawned = true;
     this.worldBossAwake = true;
 
