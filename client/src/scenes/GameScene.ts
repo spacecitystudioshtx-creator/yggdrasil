@@ -92,6 +92,8 @@ export class GameScene extends Phaser.Scene {
   private worldBossRevealLevel: number = 0; // 0-4 based on dungeons cleared
   private _bossAwakeRetryScheduled: boolean = false;
   private _bossBoostApplied: boolean = false; // prevents compounding stat boosts on reload
+  private _bossHitCooldown: number = 0; // prevents multi-projectile classes from melting boss
+  private _bossDefeated: boolean = false; // prevents double-death
   // Tracks dungeons completed in THIS session (never lost to save issues)
   private _sessionCompletedDungeons: Set<string> = new Set();
 
@@ -1158,16 +1160,14 @@ export class GameScene extends Phaser.Scene {
       this.projectileManager.playerProjectiles,
       this.worldBoss,
       (projObj: any) => {
-        if (!this.worldBossAwake || !this.worldBossData) return;
+        if (!this.worldBossAwake || !this.worldBossData || this._bossDefeated) return;
         const proj = projObj as Phaser.Physics.Arcade.Sprite;
         if (!proj.active) return;
         this.projectileManager.deactivateProjectile(proj, true);
-        const dmg = Math.floor(this.worldBossData.maxHp * 0.015);
-        this.worldBossData.hp -= dmg;
-        this.worldBoss!.setTint(0xffffff);
-        this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
-        this.showDamageNumber(this.worldBoss!.x, this.worldBoss!.y - 24, dmg);
-        if (this.worldBossData.hp <= 0) this.onWorldBossDefeated();
+        // Damage cooldown: max 5 effective hits per second regardless of projectile count
+        if (this._bossHitCooldown > 0) return;
+        this._bossHitCooldown = 0.2;
+        this.applyBossDamage();
       },
       undefined, this,
     );
@@ -1309,7 +1309,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateWorldBoss(dt: number): void {
-    if (!this.worldBoss || !this.worldBossData) return;
+    if (!this.worldBoss || !this.worldBossData || this._bossDefeated) return;
     const bd = this.worldBossData;
 
     // ---- DORMANT phase (0) — constrained idle at world center, instant-kill on touch ----
@@ -1385,6 +1385,12 @@ export class GameScene extends Phaser.Scene {
     }
 
     // ---- AWAKE phases (1-3) ----
+    // Tick damage cooldown
+    if (this._bossHitCooldown > 0) this._bossHitCooldown -= dt;
+
+    // Force visibility — boss must NEVER become invisible while awake
+    if (this.worldBoss.alpha < 0.9) this.worldBoss.setAlpha(1.0);
+
     const hpRatio = bd.hp / bd.maxHp;
 
     // Phase transitions
@@ -1463,24 +1469,23 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Manual hit detection fallback — catches projectiles that physics overlap misses
-    const bx = this.worldBoss.x;
-    const by = this.worldBoss.y;
-    const hitRadius = 48; // generous hitbox matching visual scale
-    this.projectileManager.playerProjectiles.getChildren().forEach((child: any) => {
-      const p = child as Phaser.Physics.Arcade.Sprite;
-      if (!p.active) return;
-      const dx = p.x - bx;
-      const dy = p.y - by;
-      if (dx * dx + dy * dy < hitRadius * hitRadius) {
-        this.projectileManager.deactivateProjectile(p, true);
-        const dmg = Math.floor(bd.maxHp * 0.015);
-        bd.hp -= dmg;
-        this.worldBoss!.setTint(0xffffff);
-        this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
-        this.showDamageNumber(bx, by - 24, dmg);
-        if (bd.hp <= 0) { this.onWorldBossDefeated(); return; }
-      }
-    });
+    if (!this._bossDefeated) {
+      const bossX = this.worldBoss.x;
+      const bossY = this.worldBoss.y;
+      const hitRadius = 48;
+      this.projectileManager.playerProjectiles.getChildren().forEach((child: any) => {
+        const p = child as Phaser.Physics.Arcade.Sprite;
+        if (!p.active || this._bossDefeated) return;
+        const dx = p.x - bossX;
+        const dy = p.y - bossY;
+        if (dx * dx + dy * dy < hitRadius * hitRadius) {
+          this.projectileManager.deactivateProjectile(p, true);
+          if (this._bossHitCooldown > 0) return;
+          this._bossHitCooldown = 0.2;
+          this.applyBossDamage();
+        }
+      });
+    }
 
     // Health bar — recalculate ratio after possible damage
     const updatedHpRatio = bd.hp / bd.maxHp;
@@ -1498,32 +1503,104 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Centralized boss damage — called from both physics overlap and manual check */
+  private applyBossDamage(): void {
+    if (!this.worldBossData || !this.worldBoss || this._bossDefeated) return;
+    const dmg = Math.floor(this.worldBossData.maxHp * 0.015);
+    this.worldBossData.hp -= dmg;
+    this.worldBoss.setTint(0xffffff);
+    this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
+    this.showDamageNumber(this.worldBoss.x, this.worldBoss.y - 24, dmg);
+    if (this.worldBossData.hp <= 0) {
+      this.worldBossData.hp = 0;
+      this.onWorldBossDefeated();
+    }
+  }
+
   private onWorldBossDefeated(): void {
+    if (this._bossDefeated) return; // prevent double-death
+    this._bossDefeated = true;
     this.worldBossAwake = false;
-    if (this.worldBossHealthBar) { this.worldBossHealthBar.destroy(); this.worldBossHealthBar = null; }
-    if (this.worldBossNameText) { this.worldBossNameText.destroy(); this.worldBossNameText = null; }
-    this.worldBoss?.destroy();
-    this.worldBoss = null;
-    this.worldBossData = null;
+
+    // Stop boss from doing anything
+    if (this.worldBoss) {
+      this.worldBoss.setVelocity(0, 0);
+      this.worldBossData = null;
+    }
 
     // Save the final checkpoint — Fenrir defeated
     this.progressManager.unlockStage(this.classId, 4);
-    // Clear run state so reloading doesn't replay the boss fight
     this.progressManager.clearRunState();
-
-    this.events.emit('notification', '⚡  FENRIR HAS FALLEN!', '#ffdd44');
-    this.events.emit('notification', 'YOU ARE THE CHAMPION OF MIDGARD!', '#ffaa00');
 
     // Victory heal + invincibility so player can't die during ending transition
     this.playerController.hp = this.playerController.maxHp;
     this.playerController.mp = this.playerController.maxMp;
-    this.playerController.grantInvincibility(30);
+    this.playerController.grantInvincibility(60);
     this.showInstantHealEffect(this.player.x, this.player.y - 20, this.playerController.maxHp);
 
-    // Transition to ending — use camera fade callback for reliable scene switch
-    this.time.delayedCall(3000, () => {
+    // Dramatic death animation — boss flashes and fades out over 2 seconds
+    if (this.worldBoss) {
+      this.tweens.killTweensOf(this.worldBoss);
+      // Flash white rapidly
+      this.tweens.add({
+        targets: this.worldBoss,
+        alpha: { from: 1.0, to: 0.3 },
+        duration: 150,
+        yoyo: true,
+        repeat: 6,
+        onComplete: () => {
+          // Expand and fade out
+          if (this.worldBoss) {
+            this.tweens.add({
+              targets: this.worldBoss,
+              alpha: 0,
+              scaleX: 8,
+              scaleY: 8,
+              duration: 1000,
+              ease: 'Power2',
+              onComplete: () => {
+                this.worldBoss?.destroy();
+                this.worldBoss = null;
+              },
+            });
+          }
+        },
+      });
+    }
+
+    // Remove health bar and name after a brief moment
+    this.time.delayedCall(500, () => {
+      if (this.worldBossHealthBar) { this.worldBossHealthBar.destroy(); this.worldBossHealthBar = null; }
+      if (this.worldBossNameText) { this.worldBossNameText.destroy(); this.worldBossNameText = null; }
+    });
+
+    // Large centered victory text
+    const cx = this.cameras.main.width / 2;
+    const cy = this.cameras.main.height / 2;
+    const victoryText = this.add.text(cx, cy - 60, 'FENRIR HAS FALLEN', {
+      fontFamily: 'monospace', fontSize: '28px', color: '#ffdd44',
+      stroke: '#000000', strokeThickness: 6,
+    }).setOrigin(0.5).setDepth(300).setScrollFactor(0);
+    const subText = this.add.text(cx, cy - 20, 'You are the Champion of Midgard', {
+      fontFamily: 'monospace', fontSize: '14px', color: '#ffaa44',
+      stroke: '#000000', strokeThickness: 3,
+    }).setOrigin(0.5).setDepth(300).setScrollFactor(0);
+
+    this.tweens.add({ targets: victoryText, alpha: { from: 0, to: 1 }, duration: 800, ease: 'Power2' });
+    this.tweens.add({ targets: subText, alpha: { from: 0, to: 1 }, duration: 800, delay: 400 });
+
+    this.events.emit('notification', '⚡  FENRIR HAS FALLEN!', '#ffdd44');
+
+    // Transition to ending scene — short delay then fade
+    this.time.delayedCall(4000, () => {
       this.cameras.main.fadeOut(1500, 0, 0, 0);
       this.cameras.main.once('camerafadeoutcomplete', () => {
+        this.scene.stop('UIScene');
+        this.scene.start('EndingScene');
+      });
+      // Failsafe: if camera fade event doesn't fire, force transition after 2s
+      this.time.delayedCall(2000, () => {
+        if (!this._bossDefeated) return; // safety check
         this.scene.stop('UIScene');
         this.scene.start('EndingScene');
       });
