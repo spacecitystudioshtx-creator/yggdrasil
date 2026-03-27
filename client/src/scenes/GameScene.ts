@@ -5,8 +5,9 @@ import { EnemyManager } from '../systems/EnemyManager';
 import { WorldRenderer } from '../systems/WorldRenderer';
 import { InputManager } from '../systems/InputManager';
 import { CameraController } from '../systems/CameraController';
-import { TILE_SIZE, REALM_SIZE } from '@yggdrasil/shared';
-import { getDungeon, DungeonDef } from '../data/DungeonDatabase';
+import { TILE_SIZE, REALM_SIZE, BulletPatternType } from '@yggdrasil/shared';
+import type { ProjectilePattern } from '@yggdrasil/shared';
+import { getDungeon, DungeonDef, DungeonBossDef, FENRIR_BOSS_DEF } from '../data/DungeonDatabase';
 import { getClass, ClassDef } from '../data/ClassDatabase';
 import { AbilitySystem } from '../systems/AbilitySystem';
 import { ProgressManager, PlayerRunState } from '../systems/ProgressManager';
@@ -75,14 +76,17 @@ export class GameScene extends Phaser.Scene {
 
   // World final boss (Fenrir — spawns at center when all dungeons cleared)
   private worldBoss: Phaser.Physics.Arcade.Sprite | null = null;
+  private worldBossDef: DungeonBossDef = FENRIR_BOSS_DEF;
   private worldBossData: {
     hp: number; maxHp: number;
-    fireCooldown: number;
+    currentPhaseIndex: number;
+    patternTimers: Map<string, number>;
     spiralAngle: number;
-    phase: number;
+    dormant: boolean; // true while waiting for all dungeons to be cleared
   } | null = null;
   private worldBossHealthBar: Phaser.GameObjects.Graphics | null = null;
   private worldBossNameText: Phaser.GameObjects.Text | null = null;
+  private worldBossDialogueText: Phaser.GameObjects.Text | null = null;
   private worldBossSpawned: boolean = false;
   private worldBossAwake: boolean = false;   // dormant until all dungeons cleared
   private worldBossDormantLabel: Phaser.GameObjects.Text | null = null;
@@ -1108,7 +1112,7 @@ export class GameScene extends Phaser.Scene {
     this.worldBossHomeX = spawnX;
     this.worldBossHomeY = spawnY;
 
-    this.worldBoss = this.physics.add.sprite(spawnX, spawnY, 'enemy_medium');
+    this.worldBoss = this.physics.add.sprite(spawnX, spawnY, this.worldBossDef.textureKey);
     this.worldBoss.setScale(3.5);
     this.worldBoss.setTint(0x220011);
     this.worldBoss.setDepth(15);
@@ -1123,9 +1127,10 @@ export class GameScene extends Phaser.Scene {
     this.worldBossData = {
       hp: 1,        // placeholder — not used while dormant
       maxHp: 1,
-      fireCooldown: 2.5,
+      currentPhaseIndex: 0,
+      patternTimers: new Map(),
       spiralAngle: 0,
-      phase: 0,     // 0 = dormant
+      dormant: true,
     };
 
     // Floating "???" label — hints at mystery
@@ -1254,10 +1259,23 @@ export class GameScene extends Phaser.Scene {
     // Kill dormant tweens
     this.tweens.killTweensOf(this.worldBoss);
 
-    // Dramatic visual transformation
-    this.worldBoss.setTint(0xcc0033);
+    // Dramatic visual transformation — entrance pop like dungeon bosses
+    this.worldBoss.setTint(0xffffff); // white flash
     this.worldBoss.setAlpha(1.0);
-    this.worldBoss.setScale(4.5);
+    this.tweens.add({
+      targets: this.worldBoss,
+      scaleX: 5.0, scaleY: 5.0,
+      duration: 400,
+      ease: 'Back.easeOut',
+      onComplete: () => {
+        if (this.worldBoss?.active) {
+          this.tweens.add({ targets: this.worldBoss, scaleX: 4.5, scaleY: 4.5, duration: 200, ease: 'Power2' });
+        }
+      },
+    });
+    this.time.delayedCall(300, () => {
+      if (this.worldBoss?.active) this.worldBoss.setTint(0xcc0033);
+    });
 
     // Remove dormant label
     if (this.worldBossDormantLabel) {
@@ -1282,22 +1300,32 @@ export class GameScene extends Phaser.Scene {
     pc.mp     = pc.maxMp;
     pc.grantInvincibility(5.0);
 
-    // Awaken Fenrir's real HP
-    const bossHp = 35000;
+    // Awaken Fenrir — use data-driven definition
+    const bossHp = this.worldBossDef.maxHp;
     this.worldBossData = {
       hp: bossHp,
       maxHp: bossHp,
-      fireCooldown: 0,
+      currentPhaseIndex: 0,
+      patternTimers: new Map(),
       spiralAngle: 0,
-      phase: 1,
+      dormant: false,
     };
 
     // Boss health bar (screen-space)
     this.worldBossHealthBar = this.add.graphics().setDepth(200).setScrollFactor(0);
-    this.worldBossNameText = this.add.text(400, 12, 'FENRIR  —  THE WORLD ENDER', {
+    this.worldBossNameText = this.add.text(400, 12, this.worldBossDef.name, {
       fontFamily: 'monospace', fontSize: '13px', color: '#ff4444',
       stroke: '#000', strokeThickness: 3,
     }).setOrigin(0.5).setDepth(201).setScrollFactor(0);
+
+    // Show phase 1 dialogue
+    const firstPhase = this.worldBossDef.phases[0];
+    if (firstPhase?.dialogue) {
+      this.showWorldBossDialogue(firstPhase.dialogue);
+    }
+
+    // Boss music
+    this.musicManager?.playMusic('music_boss');
 
     // Enlarge physics body to match the awake visual scale (4.5x)
     if (this.worldBoss.body) {
@@ -1308,12 +1336,28 @@ export class GameScene extends Phaser.Scene {
     this.events.emit('notification', 'Power surges through you. Fight him!', '#ffdd44');
   }
 
+  private showWorldBossDialogue(text: string): void {
+    if (!this.worldBoss) return;
+    if (this.worldBossDialogueText) this.worldBossDialogueText.destroy();
+    this.worldBossDialogueText = this.add.text(
+      this.worldBoss.x, this.worldBoss.y - 40, text,
+      { fontFamily: 'monospace', fontSize: '9px', color: '#ff8888', stroke: '#000', strokeThickness: 3 },
+    ).setOrigin(0.5).setDepth(50);
+    this.tweens.add({
+      targets: this.worldBossDialogueText,
+      y: this.worldBoss.y - 80,
+      alpha: 0,
+      duration: 3500,
+      onComplete: () => this.worldBossDialogueText?.destroy(),
+    });
+  }
+
   private updateWorldBoss(dt: number): void {
     if (!this.worldBoss || !this.worldBossData || this._bossDefeated) return;
     const bd = this.worldBossData;
 
-    // ---- DORMANT phase (0) — constrained idle at world center, instant-kill on touch ----
-    if (bd.phase === 0) {
+    // ---- DORMANT phase — constrained idle at world center, instant-kill on touch ----
+    if (bd.dormant) {
       // Direct awakening: if all dungeons cleared, awaken immediately from dormant
       // This is the most reliable path — checked every frame, no flags or delays
       const shouldAwaken = !this.worldBossSpawned && (
@@ -1362,9 +1406,10 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Slow warning radial — 4 shots every 3s, low speed
-      bd.fireCooldown -= dt;
-      if (bd.fireCooldown <= 0) {
-        bd.fireCooldown = 3.0;
+      const dormantTimer = bd.patternTimers.get('dormant_fire') ?? 2.5;
+      const newDormantTimer = dormantTimer - dt;
+      if (newDormantTimer <= 0) {
+        bd.patternTimers.set('dormant_fire', Math.max(0.5, 3.0 - this.worldBossRevealLevel * 0.5));
         const allCleared = this.lastCompletedDungeonIdx >= 3
           || this._sessionCompletedDungeons.size >= this.DUNGEON_PROGRESSION.length
           || this.progressManager.getHighestStage(this.classId) >= 4;
@@ -1375,6 +1420,8 @@ export class GameScene extends Phaser.Scene {
             this.worldBoss.x, this.worldBoss.y, a, 70, projDmg, 4000,
           );
         }
+      } else {
+        bd.patternTimers.set('dormant_fire', newDormantTimer);
       }
 
       // Update floating label position
@@ -1384,7 +1431,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // ---- AWAKE phases (1-3) ----
+    // ---- AWAKE — data-driven phase/pattern system (mirrors DungeonScene boss logic) ----
     // Tick damage cooldown
     if (this._bossHitCooldown > 0) this._bossHitCooldown -= dt;
 
@@ -1392,20 +1439,36 @@ export class GameScene extends Phaser.Scene {
     if (this.worldBoss.alpha < 0.9) this.worldBoss.setAlpha(1.0);
 
     const hpRatio = bd.hp / bd.maxHp;
+    const bossDef = this.worldBossDef;
 
-    // Phase transitions
-    if (hpRatio < 0.5 && bd.phase === 1) {
-      bd.phase = 2;
-      this.events.emit('notification', 'FENRIR ENRAGES!', '#ff4444');
+    // Phase transitions — forward iteration, last matching phase wins (same as DungeonScene)
+    let phaseIndex = 0;
+    for (let i = 0; i < bossDef.phases.length; i++) {
+      if (hpRatio <= bossDef.phases[i].healthThreshold) {
+        phaseIndex = i;
+      }
     }
-    if (hpRatio < 0.2 && bd.phase === 2) {
-      bd.phase = 3;
-      this.events.emit('notification', 'FENRIR GOES BERSERK!', '#ff0000');
+
+    if (phaseIndex !== bd.currentPhaseIndex) {
+      bd.currentPhaseIndex = phaseIndex;
+      const phase = bossDef.phases[phaseIndex];
+
+      // Phase transition dialogue + notification
+      this.showWorldBossDialogue(phase.dialogue);
+      this.events.emit('notification', phase.phaseName.toUpperCase() + '!', '#ff4444');
+
+      // Flash boss white for phase transition
+      this.worldBoss.setTint(0xffffff);
+      this.time.delayedCall(200, () => {
+        if (this.worldBoss?.active) this.worldBoss.setTint(0xcc0033);
+      });
     }
+
+    const phase = bossDef.phases[phaseIndex];
+    const speed = bossDef.speed * phase.speedMultiplier;
 
     // Chase player if in range, otherwise return to center
     const chaseRange = 450;
-    const speed = 70 + bd.phase * 25;
     const angle = angleBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
     const dist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
     const homeDist = distanceBetween(this.worldBoss.x, this.worldBoss.y, this.worldBossHomeX, this.worldBossHomeY);
@@ -1430,41 +1493,21 @@ export class GameScene extends Phaser.Scene {
       this.playerController.takeDamage(Math.floor(this.playerController.maxHp * 0.15));
     }
 
-    // Bullet patterns — escalating
-    bd.fireCooldown -= dt;
-    bd.spiralAngle += dt * (1.5 + bd.phase * 0.5);
+    // Fire patterns — data-driven, same approach as DungeonScene.updateBoss
+    bd.spiralAngle += dt * 2;
 
-    if (bd.fireCooldown <= 0) {
-      bd.fireCooldown = Math.max(0.15, 0.5 - bd.phase * 0.1);
+    for (const patternId of phase.patternIds) {
+      const pattern = bossDef.patterns[patternId];
+      if (!pattern) continue;
 
-      if (bd.phase === 1) {
-        // Spiral: 16 projectiles in a rotating ring
-        for (let i = 0; i < 16; i++) {
-          const a = (Math.PI * 2 / 16) * i + bd.spiralAngle;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 170, -1, 3500);
-        }
-      } else if (bd.phase === 2) {
-        // Double spiral: two offset rings + aimed shot
-        for (let i = 0; i < 12; i++) {
-          const a1 = (Math.PI * 2 / 12) * i + bd.spiralAngle;
-          const a2 = a1 + Math.PI / 12;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a1, 200, -1, 3500);
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a2, 150, -1, 3500);
-        }
-        // Aimed shot at player
-        this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, angle, 240, -1, 3000);
+      const timer = bd.patternTimers.get(patternId) ?? 0;
+      const newTimer = timer - dt;
+
+      if (newTimer <= 0) {
+        this.fireWorldBossPattern(pattern);
+        bd.patternTimers.set(patternId, 1.0 / pattern.fireRate);
       } else {
-        // Berserk: dense 20-point ring + fast aimed triple shot
-        for (let i = 0; i < 20; i++) {
-          const a = (Math.PI * 2 / 20) * i + bd.spiralAngle;
-          this.projectileManager.fireEnemyProjectile(this.worldBoss.x, this.worldBoss.y, a, 230, -1, 4000);
-        }
-        // Triple aimed burst at player
-        for (let s = -1; s <= 1; s++) {
-          this.projectileManager.fireEnemyProjectile(
-            this.worldBoss.x, this.worldBoss.y, angle + s * 0.15, 280, -1, 3500,
-          );
-        }
+        bd.patternTimers.set(patternId, newTimer);
       }
     }
 
@@ -1503,13 +1546,131 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Fire a boss projectile pattern — mirrors DungeonScene.fireBossPattern exactly */
+  private fireWorldBossPattern(pattern: ProjectilePattern): void {
+    if (!this.worldBoss || !this.worldBoss.active) return;
+
+    const baseAngle = angleBetween(this.worldBoss.x, this.worldBoss.y, this.player.x, this.player.y);
+    const pm = this.projectileManager;
+
+    switch (pattern.type) {
+      case BulletPatternType.Radial: {
+        for (let i = 0; i < pattern.projectileCount; i++) {
+          const a = (Math.PI * 2 / pattern.projectileCount) * i + (this.worldBossData?.spiralAngle ?? 0) * 0.1;
+          pm.fireEnemyProjectile(
+            this.worldBoss.x, this.worldBoss.y, a,
+            pattern.projectileSpeed, pattern.projectileDamage, pattern.projectileLifetime * 1000,
+          );
+        }
+        break;
+      }
+
+      case BulletPatternType.Aimed: {
+        if (pattern.burstCount > 0) {
+          for (let b = 0; b < pattern.burstCount; b++) {
+            this.time.delayedCall(b * (pattern.burstDelay * 1000), () => {
+              if (!this.worldBoss?.active) return;
+              const a = angleBetween(this.worldBoss!.x, this.worldBoss!.y, this.player.x, this.player.y);
+              pm.fireEnemyProjectile(
+                this.worldBoss!.x, this.worldBoss!.y, a,
+                pattern.projectileSpeed, pattern.projectileDamage, pattern.projectileLifetime * 1000,
+              );
+            });
+          }
+        } else {
+          pm.fireEnemyProjectile(
+            this.worldBoss.x, this.worldBoss.y, baseAngle,
+            pattern.projectileSpeed, pattern.projectileDamage, pattern.projectileLifetime * 1000,
+          );
+        }
+        break;
+      }
+
+      case BulletPatternType.Shotgun: {
+        const halfSpread = (pattern.spreadAngle * Math.PI / 180) / 2;
+        for (let i = 0; i < pattern.projectileCount; i++) {
+          const t = pattern.projectileCount > 1
+            ? (i / (pattern.projectileCount - 1)) * 2 - 1
+            : 0;
+          const a = baseAngle + t * halfSpread;
+          pm.fireEnemyProjectile(
+            this.worldBoss.x, this.worldBoss.y, a,
+            pattern.projectileSpeed * (0.9 + Math.random() * 0.2),
+            pattern.projectileDamage, pattern.projectileLifetime * 1000,
+          );
+        }
+        break;
+      }
+
+      case BulletPatternType.Spiral: {
+        const spiralBase = this.worldBossData?.spiralAngle ?? 0;
+        for (let i = 0; i < pattern.projectileCount; i++) {
+          const a = spiralBase * (pattern.rotationSpeed * Math.PI / 180) +
+            (Math.PI * 2 / pattern.projectileCount) * i;
+          pm.fireEnemyProjectile(
+            this.worldBoss.x, this.worldBoss.y, a,
+            pattern.projectileSpeed, pattern.projectileDamage, pattern.projectileLifetime * 1000,
+          );
+        }
+        break;
+      }
+
+      case BulletPatternType.Wall: {
+        const wallAngle = baseAngle + Math.PI / 2;
+        const wallWidth = (pattern.projectileCount - 1) * 12;
+        for (let i = 0; i < pattern.projectileCount; i++) {
+          const offset = (i / (pattern.projectileCount - 1)) * wallWidth - wallWidth / 2;
+          const startX = this.worldBoss.x + Math.cos(wallAngle) * offset;
+          const startY = this.worldBoss.y + Math.sin(wallAngle) * offset;
+          pm.fireEnemyProjectile(
+            startX, startY, baseAngle,
+            pattern.projectileSpeed, pattern.projectileDamage, pattern.projectileLifetime * 1000,
+          );
+        }
+        break;
+      }
+
+      case BulletPatternType.Star: {
+        const points = pattern.projectileCount;
+        const starAngle = this.worldBossData?.spiralAngle ?? 0;
+        for (let i = 0; i < points * 2; i++) {
+          const a = (Math.PI * 2 / (points * 2)) * i + starAngle * (pattern.rotationSpeed * Math.PI / 180);
+          const isOuter = i % 2 === 0;
+          const spd = isOuter ? pattern.projectileSpeed : pattern.projectileSpeed * 0.6;
+          pm.fireEnemyProjectile(
+            this.worldBoss.x, this.worldBoss.y, a,
+            spd, pattern.projectileDamage, pattern.projectileLifetime * 1000,
+          );
+        }
+        break;
+      }
+
+      case BulletPatternType.Burst: {
+        for (let i = 0; i < pattern.burstCount; i++) {
+          this.time.delayedCall(i * (pattern.burstDelay * 1000), () => {
+            if (!this.worldBoss?.active) return;
+            const a = Math.random() * Math.PI * 2;
+            pm.fireEnemyProjectile(
+              this.worldBoss!.x, this.worldBoss!.y, a,
+              pattern.projectileSpeed * (0.7 + Math.random() * 0.6),
+              pattern.projectileDamage, pattern.projectileLifetime * 1000,
+            );
+          });
+        }
+        break;
+      }
+    }
+  }
+
   /** Centralized boss damage — called from both physics overlap and manual check */
   private applyBossDamage(): void {
     if (!this.worldBossData || !this.worldBoss || this._bossDefeated) return;
     const dmg = Math.floor(this.worldBossData.maxHp * 0.015);
     this.worldBossData.hp -= dmg;
+    // Hit flash — white then back to Fenrir crimson
     this.worldBoss.setTint(0xffffff);
-    this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0x880022); });
+    this.time.delayedCall(80, () => { if (this.worldBoss?.active) this.worldBoss.setTint(0xcc0033); });
+    this.musicManager?.playSFX('sfx_enemy_hit');
     this.showDamageNumber(this.worldBoss.x, this.worldBoss.y - 24, dmg);
     if (this.worldBossData.hp <= 0) {
       this.worldBossData.hp = 0;
@@ -1526,6 +1687,13 @@ export class GameScene extends Phaser.Scene {
     if (this.worldBoss) {
       this.worldBoss.setVelocity(0, 0);
       this.worldBossData = null;
+    }
+
+    // Signal CrazyGames SDK — happyTime for the big win + gameplayStop
+    const crazySdk = (window as any).CrazyGames?.SDK;
+    if (crazySdk) {
+      try { crazySdk.game.happyTime(); } catch (_e) { /* ignore */ }
+      try { crazySdk.game.gameplayStop(); } catch (_e) { /* ignore */ }
     }
 
     // Save the final checkpoint — Fenrir defeated
@@ -1568,6 +1736,12 @@ export class GameScene extends Phaser.Scene {
       });
     }
 
+    // Clean up dialogue text if any
+    if (this.worldBossDialogueText) {
+      this.worldBossDialogueText.destroy();
+      this.worldBossDialogueText = null;
+    }
+
     // Remove health bar and name after a brief moment
     this.time.delayedCall(500, () => {
       if (this.worldBossHealthBar) { this.worldBossHealthBar.destroy(); this.worldBossHealthBar = null; }
@@ -1599,11 +1773,13 @@ export class GameScene extends Phaser.Scene {
         this.scene.start('EndingScene');
       });
       // Failsafe: if camera fade event doesn't fire, force transition after 2s
-      this.time.delayedCall(2000, () => {
+      window.setTimeout(() => {
         if (!this._bossDefeated) return; // safety check
-        this.scene.stop('UIScene');
-        this.scene.start('EndingScene');
-      });
+        try {
+          this.scene.stop('UIScene');
+          this.scene.start('EndingScene');
+        } catch (_e) { /* scene may already be transitioning */ }
+      }, 2000);
     });
   }
 
