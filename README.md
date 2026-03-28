@@ -2,31 +2,43 @@
 
 A 2D browser-based bullet-hell RPG inspired by **Realm of the Mad God** with **Norse mythology** theming and **Stardew Valley**-style warm UI aesthetics.
 
-Built with **Phaser 3**, **TypeScript**, and **Vite**.
+Built with **Phaser 3**, **TypeScript**, and **Vite**. Deployed on **CrazyGames** and playable on desktop and mobile browsers.
 
 ---
 
-## Quick Start
+## Play
+
+The game is hosted on [CrazyGames](https://www.crazygames.com/). No installation required -- just open and play.
+
+### Development Build
 
 ```bash
 npm install
-cd client && npm run dev
+cd client && npm run dev      # local dev server (Vite)
+cd client && npx vite build   # production build
 ```
-
-Open `http://localhost:5173` in your browser.
 
 ---
 
 ## Controls
 
+### Desktop (Keyboard + Mouse)
+
 | Key | Action |
 |---|---|
-| **WASD** | Move (8-directional) |
+| **WASD / Arrow Keys** | Move (8-directional) |
 | **Mouse** | Aim |
 | **Left Click** | Shoot |
 | **Space** | Use special ability |
 | **M** | Toggle world map overlay |
-| **P** | Force-exit dungeon (emergency) |
+| **P** | Summon dungeon portal to player |
+
+### Mobile (Touch)
+
+On touch devices, virtual controls are displayed automatically:
+- **Left joystick** -- movement
+- **Fire button** -- shoot (auto-aims toward nearest enemy)
+- **Ability button** -- use special ability
 
 ---
 
@@ -37,12 +49,14 @@ yggdrasil/
   shared/          # Shared types, enums, constants, balance formulas
   client/          # Phaser 3 game client (Vite + TypeScript)
     src/
-      scenes/      # PreloadScene, LoreScene, CharacterSelectScene, GameScene,
-                   # DungeonScene, UIScene, DeathScene
-      systems/     # PlayerController, AbilitySystem, MusicManager, ProgressManager,
-                   # EnemyManager, ProjectileManager
-      data/        # ClassDatabase, DungeonDatabase
-      utils/       # SpriteGenerator, ObjectPool
+      config/      # game-config.ts (Phaser config, scale settings, scene list)
+      scenes/      # BootScene, PreloadScene, LoreScene, CharacterSelectScene,
+                   # GameScene, DungeonScene, NexusScene, DeathScene, EndingScene, UIScene
+      systems/     # PlayerController, InputManager, AbilitySystem, MusicManager,
+                   # ProgressManager, EnemyManager, ProjectileManager, CameraController,
+                   # WorldRenderer, FameManager, InventoryManager, LootManager, QuestManager
+      data/        # ClassDatabase, DungeonDatabase, ItemDatabase, QuestDatabase
+      utils/       # SpriteGenerator, ObjectPool, MathUtils
   server/          # Placeholder (unused)
 ```
 
@@ -70,14 +84,14 @@ yggdrasil/
 
 ### 6 Classes with Unique Combat Profiles
 
-| Class | Style | Ability |
-|---|---|---|
-| **Viking** | 5-bullet burst, high defense | **Shield Wall** — halve all damage for 5s |
-| **Runemaster** | High single-shot damage, slow fire | **Rune Blast** — 12 arcane bolts in a ring |
-| **Valkyrie** | 3-bullet balanced hybrid | **Divine Touch** — restore 80 HP instantly |
-| **Berserker** | 3-bullet glass cannon | **Frenzy** — +50% fire rate for 5s |
-| **Skald** | Long-range support caster | **Healing Chant** — restore 100 HP (MP cost) |
-| **Huntsman** | Single-shot, fastest fire rate | **Arrow Volley** — 8-arrow wide cone burst |
+| Class | Weapon | Style | Ability |
+|---|---|---|---|
+| **Viking** | Sword | 5-bullet short-range burst, high defense | **Shield Wall** -- halve all damage for 5s |
+| **Runemaster** | Staff | High single-shot damage, slow fire | **Rune Blast** -- 12 arcane bolts in a ring |
+| **Valkyrie** | Spear | 3-bullet balanced hybrid | **Divine Touch** -- restore 80 HP instantly |
+| **Berserker** | Axe | 3-bullet glass cannon | **Frenzy** -- +50% fire rate for 5s |
+| **Skald** | Wand | Long-range support caster | **Healing Chant** -- restore 100 HP (MP cost) |
+| **Huntsman** | Bow | Single-shot, fastest fire rate | **Arrow Volley** -- 8-arrow wide cone burst |
 
 - Class-specific projectile speed, tint, spread, and damage multipliers
 - Balanced DPS across all classes: per-bullet damage within 30% of the strongest class
@@ -112,12 +126,12 @@ yggdrasil/
 
 ### Dungeons (Four Realms)
 
-| Dungeon | Unlock | Difficulty | Theme |
+| Dungeon | Portal Spawns At | Difficulty | Theme |
 |---|---|---|---|
 | **Frostheim Caverns** | Lv 5 | 3 | Ice blue, Hrimthursar boss |
-| **Verdant Hollows** | Lv 6 (after Frostheim) | 5 | Green, Thornwarden boss |
-| **Muspelheim Forge** | Lv 8 (after Verdant) | 8 | Orange flame, Ember Tyrant boss |
-| **Helheim Sanctum** | Lv 10 (after Muspelheim) | 10 | Void purple, Hel herself |
+| **Verdant Hollows** | Lv 6 | 5 | Green, Thornwarden boss |
+| **Muspelheim Forge** | Lv 8 | 8 | Orange flame, Ember Tyrant boss |
+| **Helheim Sanctum** | Lv 10 | 10 | Void purple, Hel herself |
 
 - Procedural snake-path room generation with varying room sizes
 - 3–5 enemies per room; idle until player enters, then aggro
@@ -138,14 +152,15 @@ yggdrasil/
 
 #### Save System
 - **Mid-run state persists across browser refresh** (level, XP, HP, MP, spawned portals)
+- Uses **CrazyGames Data Module** when available (syncs across devices for logged-in users), falls back to **localStorage** otherwise
 - Dungeon completion checkpoints saved per class
 
-#### Stage Select (Coffee Golf tour–style)
-- Selectable circles in a horizontal path — inspired by [Coffee Golf](https://apps.apple.com/us/app/coffee-golf/id6449750555)'s tour mode level navigation
+#### Stage Select (Coffee Golf tour-style)
+- Selectable circles in a horizontal path -- inspired by [Coffee Golf](https://apps.apple.com/us/app/coffee-golf/id6449750555)'s tour mode level navigation
 - Navigate between circles with arrow keys or click; selected circle glows with info panel below
 - Click a circle to select, click again (or ENTER) to launch
-- **`RUN` circle** — resume your exact saved run (Lv.N)
-- **`NEW` circle** — fresh start from level 1
+- **`RUN` circle** -- resume your exact saved run (Lv.N)
+- **`NEW` circle** -- fresh start from level 1
 - Named checkpoint circles for fast-travel (Frost, Verdant, Forge, Helheim)
 - Unlocked circles are warm/bright, locked circles are dimmed
 
@@ -163,8 +178,9 @@ yggdrasil/
 - 4 dungeon music tracks (one per realm), overworld, and boss themes
 - Music fades smoothly between scenes; boss track triggers on approach
 - 6 SFX: ability use, enemy hit, player hit, heal, level-up, portal enter
+- Respects CrazyGames mute/unmute settings automatically
 
-> **Generating custom tracks:** run `ELEVENLABS_API_KEY=xxx ./generate-dungeon-audio.sh`
+> **Generating custom tracks:** `ELEVENLABS_API_KEY=xxx ./generate-dungeon-audio.sh` (see also `scripts/generate-music.sh`)
 
 ---
 
@@ -189,12 +205,15 @@ yggdrasil/
 - ✅ Enemy and boss tints restored after damage flash
 - ✅ XP bar clamped (no visual overflow)
 - ✅ Minimap: dual-scale (biome rings + enemy/portal dots)
+- ✅ CrazyGames SDK: loading events, gameplay lifecycle, mute sync, cloud save
+- ✅ Mobile touch controls: virtual joystick, fire button, ability button
+- ✅ Asgard Nexus hub: vault NPC, shop NPC, dungeon portals, safe zone
 
 ---
 
-## 🚧 Known Issues / In Progress
+## Known Issues / In Progress
 
-### 🔴 Black screen on dungeon exit (intermittent)
+### Black screen on dungeon exit (intermittent)
 After defeating a dungeon boss and walking through the exit portal, the screen sometimes goes permanently black instead of transitioning back to the Midgard overworld. Root cause traced to three compounding bugs in `DungeonScene.exitDungeon()`:
 
 1. **Failsafe guard was inverted** — the 2s failsafe always fired a second `doSceneTransition` call, corrupting state
@@ -205,7 +224,7 @@ After defeating a dungeon boss and walking through the exit portal, the screen s
 
 ---
 
-### 🔴 Final boss (Fenrir) not activating correctly
+### Final boss (Fenrir) not activating correctly
 After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midgard overworld. Currently:
 - Boss may remain in the dormant ghost state (semi-transparent) if the distance-based awakening trigger doesn't fire
 - Boss attack phases may not escalate as intended in the overworld context (separate code path from dungeon bosses)
@@ -219,12 +238,13 @@ After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midg
 
 | Tool | Purpose |
 |---|---|
-| **Phaser 3** (v3.87) | 2D game framework, Arcade physics |
+| **Phaser 3** (v3.90) | 2D game framework, Arcade physics |
 | **TypeScript** | Strict mode, shared types across packages |
-| **Vite** | Fast dev server + build |
-| **npm workspaces** | Monorepo (client / shared) |
+| **Vite** (v6) | Build tooling, relative-path output for iframe hosting |
+| **npm workspaces** | Monorepo (client / shared / server placeholder) |
+| **CrazyGames SDK v3** | Loading events, gameplay lifecycle, mute integration, cloud save |
 | **ElevenLabs API** | Procedurally generated music and SFX |
-| **localStorage** | Run state, checkpoints, and progress persistence |
+| **localStorage** | Fallback persistence when CrazyGames Data Module is unavailable |
 
 ---
 
@@ -232,16 +252,20 @@ After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midg
 
 ```ts
 // Damage taken
-damage_taken = max(baseDamage − defense, baseDamage × 0.15)
+damage_taken = max(baseDamage - defense, baseDamage * 0.15)
 
 // Move speed
-moveSpeed = 80 + speedStat × 1.5
+moveSpeed = 80 + speedStat * 1.5
 
 // HP regen
-hpRegen = 1 + vitality × 0.12   // per second
+hpRegen = 1 + vitality * 0.12   // per second
 
-// XP curve (uncapped)
-xpForLevel(n) = 50 × (n−1)²
+// MP regen
+mpRegen = 0.5 + wisdom * 0.12   // per second
+
+// XP curve (uncapped, quadratic)
+xpForLevel(n) = 50 * (n - 1)^2
+// NOTE: currently divided by 10 in code for debug/testing
 ```
 
 Multi-bullet classes (Viking 5×, Berserker 3×, Valkyrie 3×) have their `damageMultiplier` set directly in `ClassDatabase.ts` so per-bullet damage is transparent and easily tunable. No hidden code penalty.
