@@ -660,8 +660,9 @@ export class CharacterSelectScene extends Phaser.Scene {
       // "Continue" sentinel — restoreRunState in GameScene handles exact level
       this.launchGame(cls.id, 0);
     } else if (checkpoint.stageIndex === 0) {
-      // "Midgard (Fresh Start)" — wipe saved run so restoreRunState doesn't restore it
+      // "Midgard (Fresh Start)" — wipe saved run AND dungeon progress for a true reset
       pm.clearRunState();
+      pm.resetClassProgress(cls.id);
       this.launchGame(cls.id, 0);
     } else {
       // Named checkpoint (Frostheim Cleared, etc.) — wipe run state, start at checkpoint

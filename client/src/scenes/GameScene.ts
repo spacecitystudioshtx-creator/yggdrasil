@@ -1164,10 +1164,11 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.overlap(
       this.projectileManager.playerProjectiles,
       this.worldBoss,
-      (projObj: any) => {
+      (objA: any, objB: any) => {
         if (!this.worldBossAwake || !this.worldBossData || this._bossDefeated) return;
-        const proj = projObj as Phaser.Physics.Arcade.Sprite;
-        if (!proj.active) return;
+        // Phaser may swap parameter order — identify which is the projectile
+        const proj = (objA === this.worldBoss ? objB : objA) as Phaser.Physics.Arcade.Sprite;
+        if (!proj.active || proj === this.worldBoss) return; // never deactivate the boss
         this.projectileManager.deactivateProjectile(proj, true);
         // Damage cooldown: max 5 effective hits per second regardless of projectile count
         if (this._bossHitCooldown > 0) return;

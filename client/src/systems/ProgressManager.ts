@@ -192,6 +192,12 @@ export class ProgressManager {
     } catch {}
   }
 
+  /** Reset a class's dungeon progress back to stage 0 (true fresh start) */
+  resetClassProgress(classId: string): void {
+    delete this.data[classId];
+    this.save();
+  }
+
   private load(): Record<string, ClassProgress> {
     try {
       const raw = storageGetItem(STORAGE_KEY);
