@@ -368,11 +368,10 @@ export class GameScene extends Phaser.Scene {
     this.checkIceWallProximity();
 
     // Safety net: if all dungeons cleared but boss still dormant, awaken it
-    // Check multiple sources: lastCompletedDungeonIdx, spawnedDungeonPortals, AND ProgressManager
+    // Only use reliable in-session tracking — spawnedPortals.every() fires too early (after dungeon 3),
+    // and getHighestStage() >= 4 would awaken Fenrir on the first frame of any post-game replay run.
     if (this.worldBoss && this.worldBoss.active && !this.worldBossAwake && !this._bossAwakeRetryScheduled) {
       const allDungeonsCleared = this.lastCompletedDungeonIdx >= 3
-        || this.DUNGEON_PROGRESSION.every(e => this.spawnedDungeonPortals.has(e.dungeonId))
-        || this.progressManager.getHighestStage(this.classId) >= 4
         || this._sessionCompletedDungeons.size >= this.DUNGEON_PROGRESSION.length;
       if (allDungeonsCleared) {
         this._bossAwakeRetryScheduled = true;
@@ -1345,13 +1344,13 @@ export class GameScene extends Phaser.Scene {
 
     // ---- DORMANT phase — constrained idle at world center, instant-kill on touch ----
     if (bd.dormant) {
-      // Direct awakening: if all dungeons cleared, awaken immediately from dormant
-      // This is the most reliable path — checked every frame, no flags or delays
+      // Direct awakening: if all dungeons cleared, awaken immediately from dormant.
+      // Only use reliable in-session tracking — spawnedPortals.every() fires too early (after
+      // dungeon 3 portal spawns), and getHighestStage() >= 4 would awaken Fenrir on the first
+      // frame of any post-game replay run.
       const shouldAwaken = !this.worldBossSpawned && (
         this.lastCompletedDungeonIdx >= 3
         || this._sessionCompletedDungeons.size >= this.DUNGEON_PROGRESSION.length
-        || this.DUNGEON_PROGRESSION.every(e => this.spawnedDungeonPortals.has(e.dungeonId))
-        || this.progressManager.getHighestStage(this.classId) >= 4
       );
       if (shouldAwaken) {
         console.log('[Fenrir] Dormant phase detected all dungeons cleared — awakening now');

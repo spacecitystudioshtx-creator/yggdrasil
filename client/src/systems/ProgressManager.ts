@@ -93,15 +93,20 @@ function getCrazyData(): { getItem(k: string): string | null; setItem(k: string,
 }
 
 function storageGetItem(key: string): string | null {
+  // Prefer localStorage — clearing browser data gives a clean slate on this device.
+  // Fall back to CrazyGames SDK only if localStorage has nothing (e.g. first visit from another device).
+  try {
+    const local = localStorage.getItem(key);
+    if (local !== null) return local;
+  } catch { /* ignore */ }
   const cd = getCrazyData();
   if (cd) {
     try {
       const val = cd.getItem(key);
       if (val !== null) return val;
-      // CrazyGames returned null — fall through to localStorage
     } catch { /* fallback */ }
   }
-  try { return localStorage.getItem(key); } catch { return null; }
+  return null;
 }
 
 function storageSetItem(key: string, value: string): void {
