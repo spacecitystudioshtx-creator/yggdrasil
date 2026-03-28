@@ -376,56 +376,37 @@ export class CharacterSelectScene extends Phaser.Scene {
   private confirmSelection(): void {
     const cls = this.classes[this.selectedIndex];
     const pm = new ProgressManager();
-    const runState = pm.loadRunState(cls.id);
 
-    // Build full option list: Start Over → unlocked dungeons → Continue
-    // Stages are LOCKED until the player has actually cleared the preceding dungeon.
-    // Use whichever source shows the most progress: yggdrasil_progress_v1 (checkpoint unlocks)
-    // or yggdrasil_run_v1 (saved run state). The two can diverge if progress data is cleared
-    // while a run save persists (e.g. after re-uploading a QA build on CrazyGames).
-    const allOptions: StageCheckpoint[] = [];
+    // Determine highest unlocked stage from both progress store and run state
+    // (the two can diverge if progress data is cleared while a run save persists).
+    const runState = pm.loadRunState(cls.id);
     const progressStage = pm.getHighestStage(cls.id);
     const runStage = runState ? (runState.lastCompletedDungeonIdx ?? -1) + 1 : 0;
     const highestStage = Math.max(progressStage, runStage);
 
-    // Stage 0 = fresh start (far left)
+    // No cleared dungeons → go straight in (new player or first run)
+    if (highestStage < 1) {
+      pm.clearRunState();
+      this.launchGame(cls.id, 0);
+      return;
+    }
+
+    // Build checkpoint list: fresh start + all unlocked dungeon checkpoints
+    const allOptions: StageCheckpoint[] = [];
     allOptions.push({
       stageIndex: 0,
-      label: 'Start Over',
+      label: 'New Game',
       startLevel: 1,
       description: 'Begin a fresh run from level 1.',
     });
-
-    // Only show dungeon checkpoints that the player has actually unlocked
     for (const cp of STAGE_CHECKPOINTS) {
       if (cp.stageIndex >= 1 && cp.stageIndex <= highestStage) {
         allOptions.push(cp);
       }
     }
 
-    // "Continue" at the far right (if a saved run exists)
-    if (runState && runState.level > 1) {
-      allOptions.push({
-        stageIndex: 99,  // sentinel — detected in confirmStageAndLaunch
-        label: `Continue  (Lv.${runState.level})`,
-        startLevel: runState.level,
-        description: `Resume your run at level ${runState.level}.`,
-      });
-    }
-
-    // Only show the stage select overlay if the player has cleared at least one dungeon.
-    // Players with a run-in-progress but no cleared dungeons go straight in (GameScene
-    // calls restoreRunState automatically). Truly new players also go straight in.
-    const hasDungeonCheckpoints = allOptions.some(o => o.stageIndex >= 1 && o.stageIndex <= 4);
-    if (!hasDungeonCheckpoints) {
-      this.launchGame(cls.id, 0);
-      return;
-    }
-
-    // Default selection: Continue if available, otherwise Start Over
-    const defaultIdx = runState && runState.level > 1 ? allOptions.length - 1 : 0;
-
-    this.showStageSelect(cls, allOptions, defaultIdx);
+    // Default to the most recently unlocked checkpoint
+    this.showStageSelect(cls, allOptions, allOptions.length - 1);
   }
 
   private showStageSelect(cls: ClassDef, checkpoints: StageCheckpoint[], defaultIdx: number = 0): void {
@@ -664,18 +645,9 @@ export class CharacterSelectScene extends Phaser.Scene {
 
     const pm = new ProgressManager();
 
-    if (checkpoint.stageIndex === 99) {
-      // "Continue" sentinel — restoreRunState in GameScene handles exact level
-      this.launchGame(cls.id, 0);
-    } else if (checkpoint.stageIndex === 0) {
-      // "Midgard (Fresh Start)" — wipe saved run so restoreRunState doesn't restore it
-      pm.clearRunState();
-      this.launchGame(cls.id, 0);
-    } else {
-      // Named checkpoint (Frostheim Cleared, etc.) — wipe run state, start at checkpoint
-      pm.clearRunState();
-      this.launchGame(cls.id, checkpoint.stageIndex);
-    }
+    // All checkpoints wipe the saved run and start fresh from that stage
+    pm.clearRunState();
+    this.launchGame(cls.id, checkpoint.stageIndex);
   }
 
   private launchGame(classId: string, startStage: number): void {

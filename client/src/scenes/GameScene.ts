@@ -1116,7 +1116,8 @@ export class GameScene extends Phaser.Scene {
     this.worldBoss.setScale(3.5);
     this.worldBoss.setTint(0x220011);
     this.worldBoss.setDepth(15);
-    this.worldBoss.body!.setSize(30, 30);
+    // Small body for world-bounds collision only — hit detection handled by manual distance check
+    this.worldBoss.body!.setSize(8, 8);
     this.worldBoss.setCollideWorldBounds(true);
 
     // Progressive reveal: starts as a faint shadow, becomes more visible with each dungeon cleared
@@ -1159,25 +1160,9 @@ export class GameScene extends Phaser.Scene {
       ease: 'Sine.easeInOut',
     });
 
-    // Register projectile overlap EARLY — callback guards on worldBossAwake
-    // so it only processes hits when the boss is in the awake fighting phase.
-    // IMPORTANT: Phaser may swap parameter order — always identify which is the projectile
-    this.physics.add.overlap(
-      this.projectileManager.playerProjectiles,
-      this.worldBoss,
-      (objA: any, objB: any) => {
-        if (!this.worldBossAwake || !this.worldBossData || this._bossDefeated) return;
-        // Phaser may swap parameter order — figure out which is the projectile vs boss
-        const proj = (objA === this.worldBoss ? objB : objA) as Phaser.Physics.Arcade.Sprite;
-        if (!proj.active || proj === this.worldBoss) return;
-        this.projectileManager.deactivateProjectile(proj, true);
-        // Damage cooldown: max 5 effective hits per second regardless of projectile count
-        if (this._bossHitCooldown > 0) return;
-        this._bossHitCooldown = 0.2;
-        this.applyBossDamage();
-      },
-      undefined, this,
-    );
+    // Hit detection is handled by the manual distance check in updateWorldBoss (hitRadius=48).
+    // No physics overlap registered — the Phaser overlap callback scaled with the boss body
+    // and was deactivating bullets before they could be rendered (body was ~288px when awake).
   }
 
   /** Progressive reveal: increase Fenrir's visibility as dungeons are cleared */
@@ -1333,11 +1318,6 @@ export class GameScene extends Phaser.Scene {
 
     // Boss music
     this.musicManager?.playMusic('music_boss');
-
-    // Enlarge physics body to match the awake visual scale (4.5x)
-    if (this.worldBoss.body) {
-      (this.worldBoss.body as Phaser.Physics.Arcade.Body).setSize(64, 64, true);
-    }
 
     this.events.emit('notification', '⚠  FENRIR AWAKENS!', '#ff2222');
     this.events.emit('notification', 'Power surges through you. Fight him!', '#ffdd44');
