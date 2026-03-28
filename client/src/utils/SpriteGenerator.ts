@@ -66,14 +66,14 @@ export class SpriteGenerator {
 
   // --- Projectiles ---
   static generateProjectileSprites(scene: Phaser.Scene): void {
-    // Player projectile (bright yellow-white bolt with black outline)
+    // Player projectile — pure white base so class tint color renders accurately.
+    // Tint multiplies against texture color: white×tint = exact tint color.
+    // Yellow or mixed base would darken/muddy the tint (e.g. purple on yellow = near-black).
     const pg = scene.add.graphics();
-    pg.fillStyle(0x000000);    // black outline/background
+    pg.fillStyle(0x000000);    // black 1px outline for contrast on any background
     pg.fillRect(0, 0, 6, 6);
-    pg.fillStyle(0xffffaa);    // yellow bolt
+    pg.fillStyle(0xffffff);    // pure white — tint shows as exact class color
     pg.fillRect(1, 1, 4, 4);
-    pg.fillStyle(0xffffff);    // bright center
-    pg.fillRect(2, 2, 2, 2);
     pg.generateTexture('projectile_player', 6, 6);
     pg.destroy();
 

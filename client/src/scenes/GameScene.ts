@@ -1161,13 +1161,15 @@ export class GameScene extends Phaser.Scene {
 
     // Register projectile overlap EARLY — callback guards on worldBossAwake
     // so it only processes hits when the boss is in the awake fighting phase.
+    // IMPORTANT: Phaser may swap parameter order — always identify which is the projectile
     this.physics.add.overlap(
       this.projectileManager.playerProjectiles,
       this.worldBoss,
-      (projObj: any) => {
+      (objA: any, objB: any) => {
         if (!this.worldBossAwake || !this.worldBossData || this._bossDefeated) return;
-        const proj = projObj as Phaser.Physics.Arcade.Sprite;
-        if (!proj.active) return;
+        // Phaser may swap parameter order — figure out which is the projectile vs boss
+        const proj = (objA === this.worldBoss ? objB : objA) as Phaser.Physics.Arcade.Sprite;
+        if (!proj.active || proj === this.worldBoss) return;
         this.projectileManager.deactivateProjectile(proj, true);
         // Damage cooldown: max 5 effective hits per second regardless of projectile count
         if (this._bossHitCooldown > 0) return;
@@ -1235,9 +1237,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Increase dormant firing intensity as reveal progresses
-    if (this.worldBossData && this.worldBossData.phase === 0) {
-      // More warning shots as Fenrir becomes more visible
-      this.worldBossData.fireCooldown = Math.max(0.5, 3.0 - dungeonsCleared * 0.5);
+    if (this.worldBossData && this.worldBossData.dormant) {
+      // More warning shots as Fenrir becomes more visible — set via patternTimers
+      this.worldBossData.patternTimers.set('dormant_fire', Math.max(0.5, 3.0 - dungeonsCleared * 0.5));
     }
   }
 
@@ -1283,18 +1285,23 @@ export class GameScene extends Phaser.Scene {
       this.worldBossDormantLabel = null;
     }
 
-    // Massive stat boost for the Fenrir fight — the player is now worthy
-    // Guard: only apply boost ONCE to prevent compounding on reload
+    // Massive stat boost for the Fenrir fight — the player is now worthy.
+    // Only apply if dungeons were cleared IN THIS SESSION (applyStartStage or normal play).
+    // On Continue/restore, the saved stats already include the boost from when it was first earned,
+    // so applying it again would compound to ~3.24x. We detect "this session" via _sessionCompletedDungeons.
     const pc = this.playerController;
     if (!this._bossBoostApplied) {
       this._bossBoostApplied = true;
-      const boost = 1.8;
-      pc.maxHp  = Math.floor(pc.maxHp  * boost);
-      pc.maxMp  = Math.floor(pc.maxMp  * boost);
-      pc.attack    = Math.floor(pc.attack    * boost);
-      pc.defense   = Math.floor(pc.defense   * boost);
-      pc.speed     = Math.floor(pc.speed     * 1.3);
-      pc.dexterity = Math.floor(pc.dexterity * 1.5);
+      const freshCompletion = this._sessionCompletedDungeons.size >= this.DUNGEON_PROGRESSION.length;
+      if (freshCompletion) {
+        const boost = 1.8;
+        pc.maxHp  = Math.floor(pc.maxHp  * boost);
+        pc.maxMp  = Math.floor(pc.maxMp  * boost);
+        pc.attack    = Math.floor(pc.attack    * boost);
+        pc.defense   = Math.floor(pc.defense   * boost);
+        pc.speed     = Math.floor(pc.speed     * 1.3);
+        pc.dexterity = Math.floor(pc.dexterity * 1.5);
+      }
     }
     pc.hp     = pc.maxHp;
     pc.mp     = pc.maxMp;
@@ -1691,7 +1698,7 @@ export class GameScene extends Phaser.Scene {
 
     // Signal CrazyGames SDK — happyTime for the big win + gameplayStop
     const crazySdk = (window as any).CrazyGames?.SDK;
-    if (crazySdk) {
+    if (crazySdk?.game) {
       try { crazySdk.game.happyTime(); } catch (_e) { /* ignore */ }
       try { crazySdk.game.gameplayStop(); } catch (_e) { /* ignore */ }
     }

@@ -378,9 +378,15 @@ export class CharacterSelectScene extends Phaser.Scene {
     const pm = new ProgressManager();
     const runState = pm.loadRunState(cls.id);
 
-    // Build full option list: Start Over → all dungeons → Continue
-    // ALL stages are always selectable (white) — they're starting points, not locked content
+    // Build full option list: Start Over → unlocked dungeons → Continue
+    // Stages are LOCKED until the player has actually cleared the preceding dungeon.
+    // Use whichever source shows the most progress: yggdrasil_progress_v1 (checkpoint unlocks)
+    // or yggdrasil_run_v1 (saved run state). The two can diverge if progress data is cleared
+    // while a run save persists (e.g. after re-uploading a QA build on CrazyGames).
     const allOptions: StageCheckpoint[] = [];
+    const progressStage = pm.getHighestStage(cls.id);
+    const runStage = runState ? (runState.lastCompletedDungeonIdx ?? -1) + 1 : 0;
+    const highestStage = Math.max(progressStage, runStage);
 
     // Stage 0 = fresh start (far left)
     allOptions.push({
@@ -390,9 +396,9 @@ export class CharacterSelectScene extends Phaser.Scene {
       description: 'Begin a fresh run from level 1.',
     });
 
-    // All dungeon checkpoints (stages 1-4) — always available
+    // Only show dungeon checkpoints that the player has actually unlocked
     for (const cp of STAGE_CHECKPOINTS) {
-      if (cp.stageIndex >= 1) {
+      if (cp.stageIndex >= 1 && cp.stageIndex <= highestStage) {
         allOptions.push(cp);
       }
     }
@@ -407,9 +413,11 @@ export class CharacterSelectScene extends Phaser.Scene {
       });
     }
 
-    // If only Start Over is available (no saved run), skip overlay
-    if (allOptions.length <= 5 && !(runState && runState.level > 1)) {
-      // First time playing — go straight in
+    // Only show the stage select overlay if the player has cleared at least one dungeon.
+    // Players with a run-in-progress but no cleared dungeons go straight in (GameScene
+    // calls restoreRunState automatically). Truly new players also go straight in.
+    const hasDungeonCheckpoints = allOptions.some(o => o.stageIndex >= 1 && o.stageIndex <= 4);
+    if (!hasDungeonCheckpoints) {
       this.launchGame(cls.id, 0);
       return;
     }

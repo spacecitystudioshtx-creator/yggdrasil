@@ -13,7 +13,7 @@ npm install
 cd client && npm run dev
 ```
 
-Open `http://localhost:5173` in your browser.
+For local development this starts a Vite dev server. For production, build with `cd client && npm run build` — the output in `client/dist/` can be uploaded directly to [CrazyGames](https://www.crazygames.com/) or any static host.
 
 ---
 
@@ -37,13 +37,12 @@ yggdrasil/
   shared/          # Shared types, enums, constants, balance formulas
   client/          # Phaser 3 game client (Vite + TypeScript)
     src/
-      scenes/      # PreloadScene, LoreScene, CharacterSelectScene, GameScene,
-                   # DungeonScene, UIScene, DeathScene
+      scenes/      # BootScene, PreloadScene, LoreScene, CharacterSelectScene,
+                   # GameScene, DungeonScene, UIScene, EndingScene, NexusScene
       systems/     # PlayerController, AbilitySystem, MusicManager, ProgressManager,
-                   # EnemyManager, ProjectileManager
+                   # EnemyManager, ProjectileManager, WorldRenderer
       data/        # ClassDatabase, DungeonDatabase
-      utils/       # SpriteGenerator, ObjectPool
-  server/          # Placeholder (unused)
+      utils/       # SpriteGenerator, ObjectPool, MathUtils
 ```
 
 ---
@@ -122,8 +121,8 @@ yggdrasil/
 - Procedural snake-path room generation with varying room sizes
 - 3–5 enemies per room; idle until player enters, then aggro
 - **Multi-phase boss fights**: phases escalate at 60% and 25% HP with new bullet patterns and dialogue
-- **Boss awakening system**: boss spawns dormant (ghost-like pulse) and dramatically awakens when the player approaches — scale pop, white flash, full alpha
-- Boss health bar and boss music both trigger on approach (distance-based, not room-bounds)
+- **Boss awakening system**: boss spawns dormant (ghost-like pulse) and dramatically awakens when player enters the boss room — scale pop, white flash, full alpha
+- Boss health bar and boss music both trigger on room entry
 - Full HP/MP restore on boss kill; exit portal always spawns on completion
 - Per-dungeon music track; boss theme switches on approach
 
@@ -146,8 +145,8 @@ yggdrasil/
 - Click a circle to select, click again (or ENTER) to launch
 - **`RUN` circle** — resume your exact saved run (Lv.N)
 - **`NEW` circle** — fresh start from level 1
-- Named checkpoint circles for fast-travel (Frost, Verdant, Forge, Helheim)
-- Unlocked circles are warm/bright, locked circles are dimmed
+- Named checkpoint circles unlock as dungeons are cleared (Frost, Verdant, Forge, Helheim)
+- First-time players go straight into the game (no stage select shown)
 
 #### Respawn
 - **No permadeath** — 3-second countdown on death, respawn at last spawn point
@@ -160,58 +159,18 @@ yggdrasil/
 ---
 
 ### Audio
-- 4 dungeon music tracks (one per realm), overworld, and boss themes
-- Music fades smoothly between scenes; boss track triggers on approach
+- 4 dungeon music tracks (one per realm), overworld theme, and boss theme
+- Music fades smoothly between scenes; boss track triggers on room entry
 - 6 SFX: ability use, enemy hit, player hit, heal, level-up, portal enter
 
-> **Generating custom tracks:** run `ELEVENLABS_API_KEY=xxx ./generate-dungeon-audio.sh`
+---
 
 ---
 
-## Known Working Features
+## Known Issues / In Progress
 
-- ✅ Lore scroll → Character Select → Game loop
-- ✅ All 6 classes with unique stats, fire rates, and ability behavior
-- ✅ Damage balanced: per-bullet damage within ~30% across all classes
-- ✅ Stage select: dot progress bar, single-click confirm, all arrow keys navigate
-- ✅ Continue / Fresh Start / Checkpoint options all launch correctly
-- ✅ Respawn on death — all progress kept, no permadeath
-- ✅ Progress persists across browser refresh (mid-run state)
-- ✅ Boss multi-phase transitions (Awakening → Phase 2 → Phase 3)
-- ✅ Boss dormant/awakening system with entrance animation
-- ✅ Boss phase patterns escalate at 60% and 25% HP (fixed backward-loop bug)
-- ✅ Boss hit feedback: SFX, white flash, damage numbers
-- ✅ Per-dungeon music keys (unique track per realm)
-- ✅ Boss music triggers on approach; full heal on boss kill
-- ✅ Exit portal always force-spawns on completion
-- ✅ Objective tracker (top-right) shows live level goals
-- ✅ Ability widget: class-colored when ready, dark sweep on cooldown
-- ✅ Enemy and boss tints restored after damage flash
-- ✅ XP bar clamped (no visual overflow)
-- ✅ Minimap: dual-scale (biome rings + enemy/portal dots)
-
----
-
-## 🚧 Known Issues / In Progress
-
-### 🔴 Black screen on dungeon exit (intermittent)
-After defeating a dungeon boss and walking through the exit portal, the screen sometimes goes permanently black instead of transitioning back to the Midgard overworld. Root cause traced to three compounding bugs in `DungeonScene.exitDungeon()`:
-
-1. **Failsafe guard was inverted** — the 2s failsafe always fired a second `doSceneTransition` call, corrupting state
-2. **Stop timer was scene-scoped** — `this.time.delayedCall` to stop DungeonScene could be cancelled by Phaser's own scene management, leaving the black faded camera active permanently
-3. **No once-guard on transition** — multiple concurrent callers could wake GameScene twice
-
-**Status:** Core fix applied (global `window.setTimeout` + `hasTransitioned` guard). May still occur in edge cases across all 4 dungeons. Under active investigation.
-
----
-
-### 🔴 Final boss (Fenrir) not activating correctly
-After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midgard overworld. Currently:
-- Boss may remain in the dormant ghost state (semi-transparent) if the distance-based awakening trigger doesn't fire
-- Boss attack phases may not escalate as intended in the overworld context (separate code path from dungeon bosses)
-- Hit registration on the final boss needs verification
-
-**Status:** Dungeon bosses are confirmed working. Fenrir uses a separate boss system in `GameScene.ts` that requires a dedicated pass to bring it in line with the dungeon boss improvements.
+### Black screen on dungeon exit (intermittent)
+After defeating a dungeon boss and walking through the exit portal, the screen may rarely go permanently black instead of transitioning back to Midgard. Root cause traced to three compounding bugs in `DungeonScene.exitDungeon()` (failsafe guard, scene-scoped timer, missing once-guard). Core fix applied with `window.setTimeout` + `hasTransitioned` guard. May still occur in rare edge cases.
 
 ---
 
@@ -224,7 +183,8 @@ After clearing all 4 dungeons, **Fenrir** spawns at the world center in the Midg
 | **Vite** | Fast dev server + build |
 | **npm workspaces** | Monorepo (client / shared) |
 | **ElevenLabs API** | Procedurally generated music and SFX |
-| **localStorage** | Run state, checkpoints, and progress persistence |
+| **CrazyGames SDK** | Platform integration (mute, loading signals, happyTime) |
+| **localStorage** | Run state, checkpoints, and progress persistence (CrazyGames Data Module fallback) |
 
 ---
 

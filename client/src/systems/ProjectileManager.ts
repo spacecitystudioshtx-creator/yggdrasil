@@ -58,7 +58,7 @@ export class ProjectileManager {
     // Pre-create player projectiles
     for (let i = 0; i < 50; i++) {
       const p = scene.physics.add.sprite(-100, -100, 'projectile_player');
-      p.setActive(false).setVisible(false).setDepth(8);
+      p.setActive(false).setVisible(false).setDepth(18);
       p.body!.setSize(4, 4);
       this.playerProjectiles.add(p);
     }
